@@ -539,28 +539,62 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
     if (!isOpen || !canvasRef.current) return;
 
     console.log("Initializing review canvas...");
-    // Safety check just in case template is undefined (though isOpen check in parent should handle it)
-    const widthPx = template?.card_width || 1011;
-    const heightPx = template?.card_height || 638;
+    let isMounted = true;
+    let activeCanvas: fabric.Canvas | null = null;
+    let retryCount = 0;
+    const maxRetries = 10;
 
-    const newCanvas = new fabric.Canvas(canvasRef.current, {
-      width: widthPx,
-      height: heightPx,
-      backgroundColor: '#ffffff',
-      selection: true,
-      renderOnAddRemove: false // Optimization: manual render
-    });
+    const initCanvas = async () => {
+      if (!isMounted || !canvasRef.current || !isOpen) return;
 
-    setCanvas(newCanvas);
+      try {
+        // Check if already initialized by Fabric
+        if (canvasRef.current.classList.contains('lower-canvas')) {
+          throw new Error("Canvas element is already initialized (DOM check)");
+        }
+
+        const widthPx = template?.card_width || 1011;
+        const heightPx = template?.card_height || 638;
+
+        const newCanvas = new fabric.Canvas(canvasRef.current, {
+          width: widthPx,
+          height: heightPx,
+          backgroundColor: '#ffffff',
+          selection: true,
+          renderOnAddRemove: false
+        });
+
+        activeCanvas = newCanvas;
+        setCanvas(newCanvas);
+        console.log("Review canvas initialized successfully.");
+
+      } catch (err: any) {
+        console.warn(`Review canvas init attempt ${retryCount + 1} failed:`, err.message);
+        if (retryCount < maxRetries && isMounted) {
+          retryCount++;
+          setTimeout(initCanvas, 50);
+        } else {
+          console.error("Critical: Failed to initialize review canvas.");
+        }
+      }
+    };
+
+    initCanvas();
 
     return () => {
+      isMounted = false;
       console.log("Disposing review canvas...");
-      newCanvas.dispose().then(() => {
-        console.log("Canvas disposed.");
-      }).catch(err => console.error("Error disposing canvas:", err));
+      if (activeCanvas) {
+        activeCanvas.dispose().then(() => {
+          console.log("Review canvas disposed.");
+        }).catch(err => console.error("Error disposing review canvas:", err));
+      }
       setCanvas(null);
     };
-  }, [isOpen, canvasRef.current, template?.card_width, template?.card_height]);
+  }, [isOpen]); // Simplfied deps to only isOpen, use refs/state for others inside or handle inside load effect. 
+  // Wait, if template dimensions change we might need to recreate? Usually template doesn't change while modal is open.
+  // We'll stick to isOpen as the primary trigger to avoid unnecessary re-inits.
+
 
 
   // Load Student Data
