@@ -1,0 +1,180 @@
+import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Users,
+  CreditCard,
+  Palette,
+  Printer,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  FileCheck,
+  Upload,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { Separator } from '@/components/ui/separator';
+
+interface NavItem {
+  title: string;
+  icon: React.ElementType;
+  href: string;
+  roles?: ('admin' | 'teacher' | 'printer')[];
+}
+
+const navItems: NavItem[] = [
+  {
+    title: 'Dashboard',
+    icon: LayoutDashboard,
+    href: '/dashboard',
+    roles: ['admin', 'teacher', 'printer'],
+  },
+  {
+    title: 'Students',
+    icon: Users,
+    href: '/students',
+    roles: ['admin', 'teacher'],
+  },
+  {
+    title: 'Upload Data',
+    icon: Upload,
+    href: '/upload',
+    roles: ['admin', 'teacher'],
+  },
+  {
+    title: 'Verification',
+    icon: FileCheck,
+    href: '/verification',
+    roles: ['admin', 'teacher'],
+  },
+  {
+    title: 'Design Studio',
+    icon: Palette,
+    href: '/design-studio',
+    roles: ['admin'],
+  },
+  {
+    title: 'ID Cards',
+    icon: CreditCard,
+    href: '/id-cards',
+    roles: ['admin'],
+  },
+  {
+    title: 'Print Jobs',
+    icon: Printer,
+    href: '/print-jobs',
+    roles: ['admin', 'printer'],
+  },
+  {
+    title: 'Settings',
+    icon: Settings,
+    href: '/settings',
+    roles: ['admin'],
+  },
+];
+
+export function AppSidebar() {
+  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut, role, user } = useAuth();
+
+  const filteredNavItems = navItems.filter(
+    (item) => !item.roles || (role && item.roles.includes(role))
+  );
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
+  return (
+    <aside
+      className={cn(
+        'relative flex flex-col bg-card border-r border-border transition-all duration-300 ease-in-out',
+        collapsed ? 'w-[70px]' : 'w-[260px]'
+      )}
+    >
+      {/* Logo */}
+      <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+        {!collapsed && (
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary">
+              <CreditCard className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold">ID Studio</span>
+              <span className="text-[10px] text-muted-foreground">Card Management</span>
+            </div>
+          </div>
+        )}
+        {collapsed && (
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary mx-auto">
+            <CreditCard className="h-5 w-5 text-primary-foreground" />
+          </div>
+        )}
+      </div>
+
+      {/* Collapse button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute -right-3 top-20 h-6 w-6 rounded-full border bg-card shadow-md hover:bg-accent"
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" />
+        ) : (
+          <ChevronLeft className="h-3 w-3" />
+        )}
+      </Button>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-1 p-3 pt-6">
+        {filteredNavItems.map((item) => {
+          const isActive = location.pathname === item.href;
+          return (
+            <Button
+              key={item.href}
+              variant={isActive ? 'secondary' : 'ghost'}
+              className={cn(
+                'w-full justify-start gap-3 transition-all',
+                isActive && 'bg-primary/10 text-primary font-medium',
+                collapsed && 'justify-center px-2'
+              )}
+              onClick={() => navigate(item.href)}
+            >
+              <item.icon className={cn('h-4 w-4 shrink-0', isActive && 'text-primary')} />
+              {!collapsed && <span>{item.title}</span>}
+            </Button>
+          );
+        })}
+      </nav>
+
+      {/* User section */}
+      <div className="border-t border-border p-3">
+        <Separator className="mb-3" />
+        {!collapsed && (
+          <div className="mb-3 px-2">
+            <p className="text-sm font-medium truncate">{user?.email}</p>
+            <p className="text-xs text-muted-foreground capitalize">{role}</p>
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          className={cn(
+            'w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10',
+            collapsed && 'justify-center px-2'
+          )}
+          onClick={handleSignOut}
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Sign Out</span>}
+        </Button>
+      </div>
+    </aside>
+  );
+}
