@@ -33,10 +33,14 @@ export default function DesignStudio() {
 
     setIsSaving(true);
     try {
+      // canvasData structure from CanvasEditor: { front_design: Object, back_design: Object }
+      const { front_design, back_design } = canvasData || {};
+
       const { error } = await supabase.from('id_templates').insert({
         name: templateName,
         description: description,
-        front_design: canvasData,
+        front_design: front_design, // Save actual front JSON
+        back_design: back_design,   // Save actual back JSON
         card_width: cardWidth,
         card_height: cardHeight,
         status: 'active'

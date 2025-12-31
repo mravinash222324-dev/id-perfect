@@ -149,7 +149,16 @@ export default function IDCards() {
         // --- FRONT SIDE ---
         const frontOverride = cardOverride.front;
         // If override exists, use it. Else use template.
-        const frontSource = frontOverride || template.front_design;
+        let frontSource = frontOverride || template.front_design;
+
+        // Backward Compatibility Fix for Front
+        if (frontSource && frontSource.front_design) {
+          frontSource = frontSource.front_design;
+        }
+
+        if (typeof frontSource === 'string') {
+          try { frontSource = JSON.parse(frontSource); } catch (e) { }
+        }
 
         if (frontSource) {
           await canvas.loadFromJSON(frontSource);
@@ -172,14 +181,25 @@ export default function IDCards() {
 
         // --- BACK SIDE ---
         // Check if template has back design or if there's a back override
-        const backSource = cardOverride.back || template.back_design;
+        let backSource = cardOverride.back || template.back_design;
+
+        // Backward Compatibility Fix for Back
+        if (backSource && backSource.back_design) {
+          backSource = backSource.back_design;
+        } else if (!backSource && template.front_design?.back_design) {
+          // Handle case where back design was nested inside front_design column
+          backSource = template.front_design.back_design;
+        }
+
+        if (typeof backSource === 'string') {
+          try { backSource = JSON.parse(backSource); } catch (e) { }
+        }
 
         if (backSource) {
           // Add new page for back side
           doc.addPage([widthMm, heightMm]);
 
           canvas.clear();
-          // Reset background if needed, though loadFromJSON usually handles it
           canvas.backgroundColor = '#ffffff';
 
           await canvas.loadFromJSON(backSource);
@@ -564,7 +584,7 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
         return;
       }
 
-      const sourceJson = overrideJson || templateJson;
+      let sourceJson = overrideJson || templateJson;
       console.log("Loading JSON source for side:", activeSide, sourceJson ? "Found" : "Missing");
 
       if (!sourceJson) {
@@ -573,12 +593,27 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
         return;
       }
 
+      // Backward Compatibility Fix: Check if data was saved wrapped
+      if (sourceJson.front_design && sourceJson.back_design) {
+        console.log("Detected wrapped template format, unwrapping...");
+        sourceJson = activeSide === 'front' ? sourceJson.front_design : sourceJson.back_design;
+      }
+
+      // Check if it's stringified
+      if (typeof sourceJson === 'string') {
+        try {
+          sourceJson = JSON.parse(sourceJson);
+        } catch (e) {
+          console.error("Failed to parse stringified JSON", e);
+        }
+      }
+
       try {
         await canvas.loadFromJSON(sourceJson);
         console.log("Canvas loaded from JSON successfully.");
       } catch (err) {
         console.error("Failed to load canvas from JSON:", err);
-        // Fallback or alert?
+        // Fallback or alert? 
         toast.error("Error loading design template");
       }
 
