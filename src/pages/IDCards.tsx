@@ -420,13 +420,25 @@ async function performReplacements(canvas: any, student: any, bulkPhotos: Map<st
     if (obj.type === 'i-text' && obj.text?.includes('{{') && obj.text?.includes('}}')) {
       let newText = obj.text.replace(/{{(.*?)}}/g, (match: string, key: string) => {
         const cleanKey = key.trim();
-        return student[cleanKey] || match;
+        const val = student[cleanKey];
+        // If value is undefined/null, return empty string or match? 
+        // Returning match leaves the placeholder {{key}} which is better for debugging than invisible text.
+        // But user said "otherwise it will blank".
+        // Let's return empty string if it exists-but-empty, or match if key doesn't exist?
+        // Safest: String(val) if val is not null/undefined.
+        return (val !== null && val !== undefined) ? String(val) : match;
       });
       obj.set({ text: newText });
     }
     if (obj.data?.key) {
       const val = student[obj.data.key];
-      if (val) obj.set({ text: val });
+      // Force string conversion to prevent Fabric crashes with numbers/null
+      const safeVal = (val !== null && val !== undefined) ? String(val) : '';
+      // Only update if there is a value, or should we clear it? 
+      // If we don't update, it keeps the placeholder/default.
+      if (val !== null && val !== undefined) {
+        obj.set({ text: safeVal });
+      }
     }
   });
 
