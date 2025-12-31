@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { CreditCard, Download, Loader2, Printer, CheckCircle, Upload } from 'lucide-react';
+import { CreditCard, Download, Loader2, Printer, CheckCircle, Upload, Eye, X, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import jsPDF from 'jspdf';
 import * as fabric from 'fabric';
 
@@ -20,8 +22,12 @@ export default function IDCards() {
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [withBorder, setWithBorder] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<string>('all');
+  const [selectedBatch, setSelectedBatch] = useState<string>('all');
   const [bulkPhotos, setBulkPhotos] = useState<Map<string, File>>(new Map());
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [reviewOverrides, setReviewOverrides] = useState<Map<string, any>>(new Map());
+  const [withBorder, setWithBorder] = useState(false);
 
   // Handle Bulk Photo Selection
   const handleBulkPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,11 +74,25 @@ export default function IDCards() {
     fetchData();
   }, []);
 
+  // Derive filters
+  const uniqueClasses = Array.from(new Set(students.map(s => s.class).filter(Boolean)));
+  const uniqueBatches = Array.from(new Set(students.map(s => s.batch).filter(Boolean)));
+
+  const filteredStudents = students.filter(s => {
+    const matchClass = selectedClass === 'all' || s.class === selectedClass;
+    const matchBatch = selectedBatch === 'all' || s.batch === selectedBatch;
+    return matchClass && matchBatch;
+  });
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedStudents(students.map(s => s.id));
+      // Add all FILTERED students to selection
+      const newIds = filteredStudents.map(s => s.id);
+      setSelectedStudents(prev => Array.from(new Set([...prev, ...newIds])));
     } else {
-      setSelectedStudents([]);
+      // Remove FILTERED students from selection
+      const filteredIds = new Set(filteredStudents.map(s => s.id));
+      setSelectedStudents(prev => prev.filter(id => !filteredIds.has(id)));
     }
   };
 
@@ -124,127 +144,63 @@ export default function IDCards() {
         if (i > 0) doc.addPage([widthMm, heightMm]);
 
         const canvas = new fabric.StaticCanvas(canvasEl);
+        const cardOverride = reviewOverrides.get(studentId) || {};
 
-        await new Promise<void>((resolve) => {
-          canvas.loadFromJSON(template.front_design, () => {
-            canvas.setWidth(widthPx);
-            canvas.setHeight(heightPx);
-            resolve();
-          });
-        });
+        // --- FRONT SIDE ---
+        const frontOverride = cardOverride.front;
+        // If override exists, use it. Else use template.
+        const frontSource = frontOverride || template.front_design;
 
-        // 1. Text Replacement
-        const objects = canvas.getObjects();
-        objects.forEach((obj: any) => {
-          // Check for placeholder text {{key}}
-          if (obj.type === 'i-text' && obj.text?.includes('{{') && obj.text?.includes('}}')) {
-            // Simple regex replace for all keys in the text
-            let newText = obj.text.replace(/{{(.*?)}}/g, (match: string, key: string) => {
-              const cleanKey = key.trim();
-              return student[cleanKey] || match; // Keep placeholder if no data
-            });
-            obj.set({ text: newText });
+        if (frontSource) {
+          await canvas.loadFromJSON(frontSource);
+
+          // Only perform replacements if NO override was used (override is already compiled)
+          if (!frontOverride) {
+            await performReplacements(canvas, student, bulkPhotos);
           }
-          // Use 'key' meta property if set (for stable placeholders)
-          if (obj.data?.key) {
-            const val = student[obj.data.key];
-            if (val) obj.set({ text: val });
-          }
-        });
 
-        // 2. Photo Replacement
-        // Find the placeholder object
-        const photoPlaceholder = objects.find((obj: any) => obj.data?.isPhotoPlaceholder || (obj as any).isPhotoPlaceholder);
+          canvas.renderAll();
+          const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
+          doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
 
-        if (photoPlaceholder) {
-          try {
-            let imgUrl = student.photo_url;
-            let isFile = false;
-
-            // If no DB URL, check bulk photos
-            if (!imgUrl && bulkPhotos.size > 0) {
-              // Try exact roll number match
-              const rollKey = student.roll_number?.toLowerCase().trim();
-              if (rollKey && bulkPhotos.has(rollKey)) {
-                const file = bulkPhotos.get(rollKey);
-                if (file) {
-                  imgUrl = URL.createObjectURL(file);
-                  isFile = true;
-                }
-              }
-            }
-
-            // Fallback default avatar if needed (optional)
-            // if (!imgUrl) imgUrl = '...';
-
-            if (imgUrl) {
-              const imgElement = await new Promise<HTMLImageElement>((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous'; // Important for CORS if using external URLs
-                img.onload = () => resolve(img);
-                img.onerror = (e) => reject(e);
-                img.src = imgUrl!;
-              });
-
-              const fabricImage = new fabric.Image(imgElement);
-
-              // Start: Fit image into placeholder logic
-              const phWidth = photoPlaceholder.width! * photoPlaceholder.scaleX!;
-              const phHeight = photoPlaceholder.height! * photoPlaceholder.scaleY!;
-              const phLeft = photoPlaceholder.left!;
-              const phTop = photoPlaceholder.top!;
-
-              // Calculate center of placeholder
-              const centerX = phLeft + (phWidth / 2);
-              const centerY = phTop + (phHeight / 2);
-
-              // Scale image to cover placeholder area
-              const scaleX = phWidth / fabricImage.width!;
-              const scaleY = phHeight / fabricImage.height!;
-              const scale = Math.max(scaleX, scaleY); // 'Cover' fit
-
-              fabricImage.set({
-                left: centerX,
-                top: centerY,
-                originX: 'center',
-                originY: 'center',
-                scaleX: scale,
-                scaleY: scale,
-                clipPath: new fabric.Rect({
-                  left: 0,
-                  top: 0,
-                  width: phWidth / scale, // Inverse scale for clip path
-                  height: phHeight / scale,
-                  originX: 'center',
-                  originY: 'center',
-                })
-              });
-
-              // Replace placeholder with actual image
-              canvas.remove(photoPlaceholder);
-              canvas.add(fabricImage);
-
-              if (isFile) URL.revokeObjectURL(imgUrl); // Cleanup blob URL
-            }
-          } catch (err) {
-            console.warn(`Could not load photo for student ${student.name}`, err);
+          if (withBorder) {
+            doc.setLineWidth(0.5);
+            doc.setDrawColor(0, 0, 0);
+            doc.rect(0, 0, widthMm, heightMm);
           }
         }
 
-        canvas.renderAll();
+        // --- BACK SIDE ---
+        // Check if template has back design or if there's a back override
+        const backSource = cardOverride.back || template.back_design;
 
-        // 4. Render to Image -> PDF
-        const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
-        doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
+        if (backSource) {
+          // Add new page for back side
+          doc.addPage([widthMm, heightMm]);
 
-        // Add Border if selected
-        if (withBorder) {
-          doc.setLineWidth(0.5);
-          doc.setDrawColor(0, 0, 0); // Black border
-          doc.rect(0, 0, widthMm, heightMm);
+          canvas.clear();
+          // Reset background if needed, though loadFromJSON usually handles it
+          canvas.backgroundColor = '#ffffff';
+
+          await canvas.loadFromJSON(backSource);
+
+          // Only perform replacements if NO override was used
+          if (!cardOverride.back) {
+            await performReplacements(canvas, student, bulkPhotos);
+          }
+
+          canvas.renderAll();
+          const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
+          doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
+
+          if (withBorder) {
+            doc.setLineWidth(0.5);
+            doc.setDrawColor(0, 0, 0);
+            doc.rect(0, 0, widthMm, heightMm);
+          }
         }
 
-        canvas.dispose(); // Dispose canvas after each use
+        canvas.dispose(); // Dispose canvas after use (re-created next loop, or we could reuse)
       }
 
       // 5. Download
@@ -262,15 +218,37 @@ export default function IDCards() {
   return (
     <DashboardLayout>
       <PageHeader title="Generate ID Cards" description="Select template and students to generate print-ready PDFs">
-        <Button
-          className="gradient-primary gap-2"
-          onClick={generateCards}
-          disabled={isGenerating || selectedStudents.length === 0 || !selectedTemplate}
-        >
-          {isGenerating ? <Loader2 className="animate-spin h-4 w-4" /> : <Printer className="h-4 w-4" />}
-          Generate PDF
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => setIsReviewOpen(true)}
+            disabled={selectedStudents.length === 0 || !selectedTemplate}
+          >
+            <Eye className="h-4 w-4" />
+            Review Batch
+          </Button>
+          <Button
+            className="gradient-primary gap-2"
+            onClick={generateCards}
+            disabled={isGenerating || selectedStudents.length === 0 || !selectedTemplate}
+          >
+            {isGenerating ? <Loader2 className="animate-spin h-4 w-4" /> : <Printer className="h-4 w-4" />}
+            Generate PDF
+          </Button>
+        </div>
       </PageHeader>
+
+      {/* Review Modal will go here */}
+      <BatchReviewModal
+        isOpen={isReviewOpen}
+        onClose={() => setIsReviewOpen(false)}
+        students={students.filter(s => selectedStudents.includes(s.id))}
+        template={templates.find(t => t.id === selectedTemplate)}
+        onSaveOverrides={(overrides) => setReviewOverrides(overrides)}
+        initialOverrides={reviewOverrides}
+        bulkPhotos={bulkPhotos}
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Configuration Panel */}
@@ -351,15 +329,39 @@ export default function IDCards() {
         {/* Student Selection Panel */}
         <div className="lg:col-span-2">
           <Card className="h-full max-h-[600px] flex flex-col">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-lg">Select Students</CardTitle>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="select-all"
-                  checked={selectedStudents.length === students.length && students.length > 0}
-                  onCheckedChange={handleSelectAll}
-                />
-                <Label htmlFor="select-all" className="cursor-pointer">Select All</Label>
+            <CardHeader className="pb-2">
+              <div className="flex flex-row items-center justify-between mb-4">
+                <CardTitle className="text-lg">Select Students</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="select-all"
+                    checked={filteredStudents.length > 0 && filteredStudents.every(s => selectedStudents.includes(s.id))}
+                    onCheckedChange={handleSelectAll}
+                  />
+                  <Label htmlFor="select-all" className="cursor-pointer">Select All</Label>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mb-2">
+                <Select value={selectedClass} onValueChange={setSelectedClass}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="All Classes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Classes</SelectItem>
+                    {uniqueClasses.map((c: any) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+
+                <Select value={selectedBatch} onValueChange={setSelectedBatch}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="All Batches" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Batches</SelectItem>
+                    {uniqueBatches.map((b: any) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-auto pt-0">
@@ -367,9 +369,9 @@ export default function IDCards() {
                 <div className="flex items-center justify-center h-48">
                   <Loader2 className="animate-spin h-8 w-8 text-primary" />
                 </div>
-              ) : students.length > 0 ? (
+              ) : filteredStudents.length > 0 ? (
                 <div className="space-y-2 mt-2">
-                  {students.map(student => (
+                  {filteredStudents.map(student => (
                     <div key={student.id} className="flex items-center space-x-4 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
                       <Checkbox
                         id={`student-${student.id}`}
@@ -409,3 +411,266 @@ export default function IDCards() {
     </DashboardLayout>
   );
 }
+
+// Helper for Replacements
+async function performReplacements(canvas: any, student: any, bulkPhotos: Map<string, File>) {
+  const objects = canvas.getObjects();
+  // 1. Text Replacement
+  objects.forEach((obj: any) => {
+    if (obj.type === 'i-text' && obj.text?.includes('{{') && obj.text?.includes('}}')) {
+      let newText = obj.text.replace(/{{(.*?)}}/g, (match: string, key: string) => {
+        const cleanKey = key.trim();
+        return student[cleanKey] || match;
+      });
+      obj.set({ text: newText });
+    }
+    if (obj.data?.key) {
+      const val = student[obj.data.key];
+      if (val) obj.set({ text: val });
+    }
+  });
+
+  // 2. Photo Replacement
+  const photoPlaceholder = objects.find((obj: any) => obj.data?.isPhotoPlaceholder || (obj as any).isPhotoPlaceholder);
+  if (photoPlaceholder) {
+    try {
+      let imgUrl = student.photo_url;
+      // let isFile = false; // Disable revocation for debugging
+
+      // Debug Matching
+      if (!imgUrl && bulkPhotos.size > 0) {
+        const rollKey = student.roll_number?.toLowerCase().trim();
+        console.log(`[Photo Match] Trying to match student '${student.name}' (Roll: ${rollKey}) against ${bulkPhotos.size} photos.`);
+
+        if (rollKey && bulkPhotos.has(rollKey)) {
+          console.log(`[Photo Match] FOUND match for ${rollKey}`);
+          const file = bulkPhotos.get(rollKey);
+          if (file) {
+            imgUrl = URL.createObjectURL(file);
+            // isFile = true;
+          }
+        } else {
+          // To help user debug, log near misses or sample keys
+          console.log(`[Photo Match] NO match for ${rollKey}. Sample keys:`, Array.from(bulkPhotos.keys()).slice(0, 3));
+        }
+      }
+
+      if (imgUrl) {
+        const imgElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => resolve(img);
+          img.onerror = (e) => reject(e);
+          img.src = imgUrl!;
+        });
+        const fabricImage = new fabric.Image(imgElement);
+        // Start: Fit image into placeholder logic
+        const phWidth = photoPlaceholder.width! * photoPlaceholder.scaleX!;
+        const phHeight = photoPlaceholder.height! * photoPlaceholder.scaleY!;
+        const phLeft = photoPlaceholder.left!;
+        const phTop = photoPlaceholder.top!;
+
+        const centerX = phLeft + (phWidth / 2);
+        const centerY = phTop + (phHeight / 2);
+
+        const scaleX = phWidth / fabricImage.width!;
+        const scaleY = phHeight / fabricImage.height!;
+        const scale = Math.max(scaleX, scaleY);
+
+        fabricImage.set({
+          left: centerX, top: centerY, originX: 'center', originY: 'center',
+          scaleX: scale, scaleY: scale,
+          clipPath: new fabric.Rect({
+            left: 0, top: 0, width: phWidth / scale, height: phHeight / scale,
+            originX: 'center', originY: 'center',
+          })
+        });
+        canvas.remove(photoPlaceholder);
+        canvas.add(fabricImage);
+        // if (isFile) URL.revokeObjectURL(imgUrl); // Commented out for debugging
+      }
+    } catch (err) {
+      console.warn(`Could not load photo for student ${student.name}`, err);
+    }
+  }
+}
+
+const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides, initialOverrides, bulkPhotos }: any) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
+  const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const currentStudent = students[currentIndex];
+
+  // Initialize Canvas
+  useEffect(() => {
+    if (!isOpen || !canvasRef.current) return;
+
+    console.log("Initializing review canvas...");
+    // Safety check just in case template is undefined (though isOpen check in parent should handle it)
+    const widthPx = template?.card_width || 1011;
+    const heightPx = template?.card_height || 638;
+
+    const newCanvas = new fabric.Canvas(canvasRef.current, {
+      width: widthPx,
+      height: heightPx,
+      backgroundColor: '#ffffff',
+      selection: true,
+      renderOnAddRemove: false // Optimization: manual render
+    });
+
+    setCanvas(newCanvas);
+
+    return () => {
+      console.log("Disposing review canvas...");
+      newCanvas.dispose().then(() => {
+        console.log("Canvas disposed.");
+      }).catch(err => console.error("Error disposing canvas:", err));
+      setCanvas(null);
+    };
+  }, [isOpen, canvasRef.current, template?.card_width, template?.card_height]);
+
+
+  // Load Student Data
+  useEffect(() => {
+    if (!canvas || !currentStudent || !template) return;
+
+    const loadCard = async () => {
+      canvas.clear();
+      canvas.backgroundColor = '#ffffff';
+
+      // Determine which source to use: override or template
+      // Structure of reviewOverrides: map(studentId -> { front: json, back: json })
+      const studentOverrides = initialOverrides.get(currentStudent.id) || {};
+      const overrideJson = activeSide === 'front' ? studentOverrides.front : studentOverrides.back;
+
+      const templateJson = activeSide === 'front' ? template.front_design : template.back_design;
+
+      // If no template for this side (e.g. back is empty), just clear
+      if (!overrideJson && !templateJson) {
+        canvas.requestRenderAll();
+        return;
+      }
+
+      const sourceJson = overrideJson || templateJson;
+      console.log("Loading JSON source for side:", activeSide, sourceJson ? "Found" : "Missing");
+
+      if (!sourceJson) {
+        console.warn("No design found for", activeSide);
+        canvas.requestRenderAll();
+        return;
+      }
+
+      try {
+        await canvas.loadFromJSON(sourceJson);
+        console.log("Canvas loaded from JSON successfully.");
+      } catch (err) {
+        console.error("Failed to load canvas from JSON:", err);
+        // Fallback or alert?
+        toast.error("Error loading design template");
+      }
+
+      // If it was an override, it's already "baked" with data.
+      // If it is the template, we need to replace placeholders.
+      if (!overrideJson) {
+        await performReplacements(canvas, currentStudent, bulkPhotos);
+      } else {
+        console.log("Using override, skipping replacements.");
+      }
+
+      canvas.requestRenderAll();
+    };
+
+    loadCard();
+
+  }, [currentIndex, canvas, currentStudent, template, activeSide]);
+
+
+  const handleSaveCurrent = () => {
+    if (!canvas || !currentStudent) return;
+    const json = canvas.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable']);
+
+    // Get existing overrides for this student
+    const existingStudentOverrides = initialOverrides.get(currentStudent.id) || {};
+
+    // Create new override object merging existing with new
+    const updatedStudentOverrides = {
+      ...existingStudentOverrides,
+      [activeSide]: json
+    };
+
+    const newOverrides = new Map(initialOverrides);
+    newOverrides.set(currentStudent.id, updatedStudentOverrides);
+    onSaveOverrides(newOverrides);
+    toast.success(`Saved ${activeSide} side for ${currentStudent.name}`);
+  };
+
+  const nextStudent = () => {
+    // Auto-save? Maybe optional.
+    if (currentIndex < students.length - 1) setCurrentIndex(prev => prev + 1);
+  };
+
+  const prevStudent = () => {
+    if (currentIndex > 0) setCurrentIndex(prev => prev - 1);
+  };
+
+  // Keyboard nav
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') nextStudent();
+      if (e.key === 'ArrowLeft') prevStudent();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex]);
+
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-[95vw] w-full h-[95vh] flex flex-col p-0">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-4">
+            <DialogTitle>Review ID Cards ({currentIndex + 1} / {students.length})</DialogTitle>
+            <DialogDescription className="text-sm font-medium text-muted-foreground">{currentStudent?.name} - {currentStudent?.roll_number}</DialogDescription>
+          </div>
+          <div className="flex gap-2">
+            <Tabs value={activeSide} onValueChange={(v) => setActiveSide(v as any)} className="mr-4">
+              <TabsList>
+                <TabsTrigger value="front">Front</TabsTrigger>
+                <TabsTrigger value="back">Back</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <Button variant="outline" size="sm" onClick={handleSaveCurrent}>
+              <Save className="w-4 h-4 mr-2" />
+              Save Changes
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex-1 bg-gray-100 flex items-center justify-center p-8 overflow-hidden">
+          <div className="shadow-2xl bg-white" style={{ transform: 'scale(0.8)' }}>
+            <canvas ref={canvasRef} />
+          </div>
+        </div>
+
+        <div className="p-4 border-t flex justify-between items-center bg-white">
+          <Button variant="ghost" onClick={prevStudent} disabled={currentIndex === 0}>
+            <ChevronLeft className="w-4 h-4 mr-2" /> Previous
+          </Button>
+
+          <div className="text-sm text-muted-foreground">
+            Use arrow keys to navigate. Click text to edit. Drag photo to adjust.
+          </div>
+
+          <Button variant="ghost" onClick={nextStudent} disabled={currentIndex === students.length - 1}>
+            Next <ChevronRight className="w-4 h-4 ml-2" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};

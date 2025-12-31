@@ -1,0 +1,9 @@
+roll_number,name,email,phone,class,department,batch,blood_group,dob,address
+STU101,Aarav Patel,aarav@example.com,9876543210,Class 10A,Science,2024,O+,2008-05-15,123 MG Road, Mumbai
+STU102,Sanya Sharma,sanya@example.com,9876543211,Class 10A,Science,2024,A+,2008-08-20,456 Park Street, Delhi
+STU103,Rohan Gupta,rohan@example.com,9876543212,Class 10A,Science,2024,B+,2008-02-10,789 Lake View, Bangalore
+STU201,Ishaan Kumar,ishaan@example.com,9876543213,Class 10B,Commerce,2024,AB+,2008-11-05,101 Pine Ave, Chennai
+STU202,Mira Singh,mira@example.com,9876543214,Class 10B,Commerce,2024,O-,2008-07-25,202 Oak Lane, Hyderabad
+STU203,Vihaan Reddy,vihaan@example.com,9876543215,Class 10B,Commerce,2024,B-,2008-09-12,303 Cedar Dr, Pune
+STU301,Ananya Das,ananya@example.com,9876543216,Class 11A,Arts,2023,A-,2007-03-30,404 Elm St, Kolkata
+STU302,Arjun Nair,arjun@example.com,9876543217,Class 11A,Arts,2023,AB-,2007-12-18,505 Maple Rd, Kochi

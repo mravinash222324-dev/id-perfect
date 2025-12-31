@@ -20,7 +20,147 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
     const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
     const [selectedObject, setSelectedObject] = useState<fabric.FabricObject | null>(null);
     const [isPreview, setIsPreview] = useState(false);
-    const [savedJson, setSavedJson] = useState<any>(null);
+    const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
+    const [frontJson, setFrontJson] = useState<any>(null); // Store front design
+    const [backJson, setBackJson] = useState<any>(null); // Store back design
+
+    // Initialize Canvas
+    useEffect(() => {
+        if (!canvasRef.current) return;
+
+        console.log("Initializing CanvasEditor...");
+        let isMounted = true;
+        let activeCanvas: fabric.Canvas | null = null;
+        let retryCount = 0;
+        const maxRetries = 10;
+
+        const initCanvas = async () => {
+            if (!isMounted || !canvasRef.current) return;
+
+            try {
+                // Check if the DOM element is already wrapped by fabric (class 'lower-canvas')
+                // This indicates a previous instance wasn't fully disposed yet.
+                if (canvasRef.current.classList.contains('lower-canvas')) {
+                    throw new Error("Canvas element is already initialized (DOM check)");
+                }
+
+                // Attempt synchronization creation
+                const newCanvas = new fabric.Canvas(canvasRef.current, {
+                    width: width,
+                    height: height,
+                    backgroundColor: '#ffffff',
+                    selection: true
+                });
+
+                activeCanvas = newCanvas;
+                setCanvas(newCanvas);
+
+                // Load initial content
+                if (initialData) {
+                    try {
+                        const json = initialData.front_design || initialData;
+
+                        if (initialData.front_design) {
+                            setFrontJson(initialData.front_design);
+                            setBackJson(initialData.back_design);
+                        } else {
+                            setFrontJson(initialData);
+                        }
+
+                        if (json) {
+                            await newCanvas.loadFromJSON(json);
+                        }
+                    } catch (err) {
+                        console.error("Error loading initial canvas data:", err);
+                    }
+                    newCanvas.requestRenderAll();
+                }
+
+                // Attach Events
+                newCanvas.on('selection:created', (e) => setSelectedObject(e.selected?.[0] || null));
+                newCanvas.on('selection:updated', (e) => setSelectedObject(e.selected?.[0] || null));
+                newCanvas.on('selection:cleared', () => setSelectedObject(null));
+
+                newCanvas.on('object:modified', () => saveCurrentSide(newCanvas));
+                newCanvas.on('object:added', () => saveCurrentSide(newCanvas));
+                newCanvas.on('object:removed', () => saveCurrentSide(newCanvas));
+
+            } catch (err: any) {
+                console.warn(`Init attempt ${retryCount + 1} failed:`, err.message);
+
+                if (retryCount < maxRetries && isMounted) {
+                    retryCount++;
+                    // Wait and retry
+                    setTimeout(initCanvas, 50);
+                } else {
+                    console.error("Critical: Failed to initialize canvas after max retries.");
+                }
+            }
+        };
+
+        // Start initialization
+        initCanvas();
+
+        // Cleanup
+        return () => {
+            isMounted = false;
+            console.log("Disposing CanvasEditor...");
+
+            // If we have an active instance, dispose it
+            if (activeCanvas) {
+                activeCanvas.dispose().then(() => {
+                    console.log("CanvasEditor disposed.");
+                }).catch(e => console.error("Dispose error", e));
+            }
+            setCanvas(null);
+        };
+    }, []); // Run once on mount
+
+    const saveCurrentSide = (c: fabric.Canvas) => {
+        const json = c.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable']);
+        if (activeSide === 'front') {
+            setFrontJson(json);
+        } else {
+            setBackJson(json);
+        }
+    };
+
+    // Switch Sides
+    const handleSideChange = (side: 'front' | 'back') => {
+        if (!canvas) return;
+
+        // Save current
+        saveCurrentSide(canvas);
+
+        // Load new
+        const jsonToLoad = side === 'front' ? frontJson : backJson;
+
+        canvas.clear();
+        canvas.backgroundColor = '#ffffff'; // Reset bg
+
+        if (jsonToLoad) {
+            canvas.loadFromJSON(jsonToLoad).then(() => {
+                canvas.renderAll();
+            });
+        }
+
+        setActiveSide(side);
+        setSelectedObject(null);
+    };
+
+
+    const handleSave = () => {
+        if (!canvas) return;
+        // Ensure current side is up to date
+        const currentJson = canvas.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable']);
+
+        const finalData = {
+            front_design: activeSide === 'front' ? currentJson : frontJson,
+            back_design: activeSide === 'back' ? currentJson : backJson
+        };
+
+        onSave(finalData);
+    };
 
     // Toggle Preview Mode
     const togglePreview = async () => {
@@ -28,6 +168,9 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
 
         if (!isPreview) {
             // Enable Preview
+            // Save state first
+            saveCurrentSide(canvas);
+
 
             // Dummy Data
             const dummyData: Record<string, string> = {
@@ -164,34 +307,6 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
         }
     }, [canvas, width, height]);
 
-    // Initialize Canvas
-    useEffect(() => {
-        if (!canvasRef.current) return;
-
-        const newCanvas = new fabric.Canvas(canvasRef.current, {
-            width,
-            height,
-            backgroundColor: '#ffffff',
-        });
-
-        setCanvas(newCanvas);
-
-        // Initial Data Load
-        if (initialData) {
-            newCanvas.loadFromJSON(initialData, () => {
-                newCanvas.renderAll();
-            });
-        }
-
-        // Event Listeners
-        newCanvas.on('selection:created', (e) => setSelectedObject(e.selected?.[0] || null));
-        newCanvas.on('selection:updated', (e) => setSelectedObject(e.selected?.[0] || null));
-        newCanvas.on('selection:cleared', () => setSelectedObject(null));
-
-        return () => {
-            newCanvas.dispose();
-        };
-    }, []);
 
     // Add Text
     const addText = () => {
@@ -322,12 +437,6 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
         canvas.requestRenderAll();
     };
 
-    // Save
-    const handleSave = () => {
-        if (!canvas) return;
-        const json = canvas.toObject(['data', 'isPhotoPlaceholder']); // Include custom properties
-        onSave(json);
-    };
 
     // Alignment Logic
     const handleAlign = (alignment: string) => {
@@ -466,7 +575,15 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
             </div>
 
             {/* Main Canvas Area */}
-            <div className="flex-1 bg-gray-100 relative overflow-auto flex items-center justify-center p-8">
+            <div className="flex-1 bg-gray-100 relative overflow-auto flex flex-col items-center justify-center p-8">
+                <div className="mb-4">
+                    <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
+                        <TabsList className="bg-white/50 backdrop-blur-sm border shadow-sm">
+                            <TabsTrigger value="front" className="w-24">Front Side</TabsTrigger>
+                            <TabsTrigger value="back" className="w-24">Back Side</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+                </div>
                 <div className="shadow-2xl">
                     <canvas ref={canvasRef} />
                 </div>
