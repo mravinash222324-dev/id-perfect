@@ -1,0 +1,6 @@
+roll_number,name,email,phone,dob,blood_group,class,department,batch,guardian_name,address
+STU001,John Doe,john.doe@example.com,+1234567890,2002-05-15,A+,10th,Science,2024,Jane Doe,123 Main St, Springfield
+STU002,Alice Smith,alice.smith@example.com,+1987654321,2001-08-22,O-,12th,Arts,2023,Bob Smith,456 Oak Ave, Metropolis
+STU003,Michael Brown,michael.b@example.com,+1122334455,2003-01-10,B+,11th,Commerce,2025,Sarah Brown,789 Pine Ln, Gotham
+STU004,Emily Davis,emily.d@example.com,+1555666777,2002-11-30,AB+,10th,Science,2024,Chris Davis,321 Elm St, Star City
+STU005,David Wilson,,+1444555666,2001-04-12,O+,12th,Science,2023,Laura Wilson,654 Maple Dr, Central City

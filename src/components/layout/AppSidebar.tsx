@@ -82,9 +82,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { signOut, role, user } = useAuth();
 
-  const filteredNavItems = navItems.filter(
-    (item) => !item.roles || (role && item.roles.includes(role))
-  );
+  const filteredNavItems = navItems;
 
   const handleSignOut = async () => {
     await signOut();

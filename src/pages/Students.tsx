@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { StatusBadge } from '@/components/ui/status-badge';
 import {
   Table,
@@ -30,6 +31,7 @@ import {
   Trash2,
   Download,
   Users,
+  Upload,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -85,12 +87,43 @@ export default function Students() {
     try {
       const { error } = await supabase.from('students').delete().eq('id', id);
       if (error) throw error;
-      
+
       setStudents(students.filter((s) => s.id !== id));
       toast.success('Student deleted successfully');
     } catch (error) {
       console.error('Error deleting student:', error);
       toast.error('Failed to delete student');
+    }
+  };
+
+  const handlePhotoUpload = async (file: File, studentId: string) => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${studentId}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('student-photos')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('student-photos')
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await supabase
+        .from('students')
+        .update({ photo_url: publicUrl })
+        .eq('id', studentId);
+
+      if (updateError) throw updateError;
+
+      setStudents(students.map(s => s.id === studentId ? { ...s, photo_url: publicUrl } : s));
+      toast.success('Photo uploaded successfully');
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      toast.error('Failed to upload photo');
     }
   };
 
@@ -136,6 +169,7 @@ export default function Students() {
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead>Student</TableHead>
+                    <TableHead className="w-[50px]">Photo</TableHead>
                     <TableHead>Roll Number</TableHead>
                     <TableHead>Class</TableHead>
                     <TableHead>Department</TableHead>
@@ -166,6 +200,24 @@ export default function Students() {
                               {student.email || 'No email'}
                             </p>
                           </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor={`photo-${student.id}`} className="cursor-pointer hover:bg-muted p-1 rounded-md">
+                            <Upload className="h-4 w-4 text-muted-foreground" />
+                          </Label>
+                          <Input
+                            id={`photo-${student.id}`}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files?.[0]) {
+                                handlePhotoUpload(e.target.files[0], student.id);
+                              }
+                            }}
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">
