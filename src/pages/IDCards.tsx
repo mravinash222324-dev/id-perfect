@@ -597,6 +597,11 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
       if (sourceJson.front_design && sourceJson.back_design) {
         console.log("Detected wrapped template format, unwrapping...");
         sourceJson = activeSide === 'front' ? sourceJson.front_design : sourceJson.back_design;
+      } else if (activeSide === 'back' && !sourceJson && template.front_design?.back_design) {
+        // Handle specific case for Back side where it was nested in front column
+        // and template.back_design was null (so sourceJson is null)
+        console.log("Detected back design nested in front column...");
+        sourceJson = template.front_design.back_design;
       }
 
       // Check if it's stringified
