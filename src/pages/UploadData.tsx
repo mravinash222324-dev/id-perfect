@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,8 +15,11 @@ import {
   Download,
   Loader2,
   X,
+  Trash2,
+  Database
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface UploadResult {
   success: number;
@@ -26,9 +29,48 @@ interface UploadResult {
 
 export default function UploadData() {
   const [file, setFile] = useState<File | null>(null);
+  const [batchName, setBatchName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [existingBatches, setExistingBatches] = useState<any[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+
+  useEffect(() => {
+    fetchBatches();
+  }, []);
+
+  const fetchBatches = async () => {
+    setLoadingBatches(true);
+    try {
+      // Fetch all batches. In a real app with 10k+ rows, this should be an RPC or a separate table.
+      // For now, we fetch distinct batches by selecting 'batch' column.
+      const { data, error } = await supabase
+        .from('students')
+        .select('batch, created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Group by batch name to get counts or just unique names
+      const batches = new Map();
+      data?.forEach((item: any) => {
+        if (item.batch) {
+          if (!batches.has(item.batch)) {
+            batches.set(item.batch, { name: item.batch, count: 0, last_upload: item.created_at });
+          }
+          batches.get(item.batch).count++;
+        }
+      });
+
+      setExistingBatches(Array.from(batches.values()));
+
+    } catch (err) {
+      console.error("Error fetching batches:", err);
+    } finally {
+      setLoadingBatches(false);
+    }
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -47,6 +89,7 @@ export default function UploadData() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile && (droppedFile.type === 'text/csv' || droppedFile.name.endsWith('.csv'))) {
       setFile(droppedFile);
+      setBatchName(droppedFile.name.replace('.csv', '')); // Default batch name
       setUploadResult(null);
     } else {
       toast.error('Please upload a CSV file');
@@ -57,6 +100,7 @@ export default function UploadData() {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setBatchName(selectedFile.name.replace('.csv', '')); // Default batch name
       setUploadResult(null);
     }
   };
@@ -69,6 +113,7 @@ export default function UploadData() {
     const rows: Record<string, string>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
+      // Basic CSV parsing (doesn't handle commas inside quotes)
       const values = lines[i].split(',').map((v) => v.trim());
       const row: Record<string, string> = {};
       headers.forEach((header, index) => {
@@ -82,6 +127,10 @@ export default function UploadData() {
 
   const handleUpload = async () => {
     if (!file) return;
+    if (!batchName.trim()) {
+      toast.error("Please enter a batch name");
+      return;
+    }
 
     setIsUploading(true);
     setUploadResult(null);
@@ -99,6 +148,8 @@ export default function UploadData() {
       let failed = 0;
       const errors: string[] = [];
 
+      // Check if batch exists? We assume append is okay, or user wants to add to existing batch.
+
       for (const row of rows) {
         try {
           const studentData = {
@@ -110,7 +161,7 @@ export default function UploadData() {
             blood_group: row.blood_group || row.blood_type || null,
             class: row.class || row.grade || null,
             department: row.department || row.dept || null,
-            batch: row.batch || row.year || null,
+            batch: batchName.trim(), // USE THE USER PROVIDED BATCH NAME
             guardian_name: row.guardian_name || row.parent_name || null,
             address: row.address || null,
             verification_status: 'pending',
@@ -120,6 +171,15 @@ export default function UploadData() {
 
           if (error) {
             if (error.code === '23505') {
+              // Duplicate Roll Number
+              // Try Updating instead?
+              // The user said "collision... select batch is priority".
+              // If we are uploading New Data, maybe we should UPSERT?
+              // Let's try upsert if insert fails, OR just upsert by default logic if we want to "Replace".
+              // But 'students' table PK is UUID. Roll Number is unique key? 
+              // If roll number is unique constraint, we have a problem if different batches share roll numbers.
+              // Assuming Roll Number is globally unique for now based on constraint.
+              // Let's report dupes.
               errors.push(`Duplicate roll number: ${studentData.roll_number}`);
             } else {
               errors.push(`Row ${success + failed + 1}: ${error.message}`);
@@ -137,7 +197,8 @@ export default function UploadData() {
       setUploadResult({ success, failed, errors });
 
       if (success > 0) {
-        toast.success(`Successfully imported ${success} student(s)`);
+        toast.success(`Successfully imported ${success} student(s) into batch "${batchName}"`);
+        fetchBatches(); // Refresh list
       }
       if (failed > 0) {
         toast.warning(`${failed} record(s) failed to import`);
@@ -150,11 +211,25 @@ export default function UploadData() {
     }
   };
 
+  const deleteBatch = async (batchToDelete: string) => {
+    if (!confirm(`Are you sure you want to delete ALL students in batch "${batchToDelete}"? This cannot be undone.`)) return;
+
+    try {
+      const { error } = await supabase.from('students').delete().eq('batch', batchToDelete);
+      if (error) throw error;
+      toast.success(`Batch "${batchToDelete}" deleted.`);
+      fetchBatches();
+    } catch (err) {
+      console.error("Delete failed", err);
+      toast.error("Failed to delete batch");
+    }
+  }
+
   const downloadTemplate = () => {
-    const headers = 'roll_number,name,email,phone,dob,blood_group,class,department,batch,guardian_name,address';
-    const sampleRow = 'STU001,John Doe,john@example.com,+1234567890,2000-01-15,A+,10th,Science,2024,Jane Doe,123 Main St';
+    const headers = 'roll_number,name,email,phone,dob,blood_group,class,department,guardian_name,address';
+    const sampleRow = 'STU001,John Doe,john@example.com,+1234567890,2000-01-15,A+,10th,Science,Jane Doe,123 Main St';
     const csv = `${headers}\n${sampleRow}`;
-    
+
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -167,8 +242,8 @@ export default function UploadData() {
   return (
     <DashboardLayout>
       <PageHeader
-        title="Upload Student Data"
-        description="Import student records from CSV files"
+        title="Student Data Management"
+        description="Import new students or manage existing batches"
       >
         <Button variant="outline" onClick={downloadTemplate} className="gap-2">
           <Download className="h-4 w-4" />
@@ -178,152 +253,202 @@ export default function UploadData() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Upload Area */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-primary" />
-              Upload CSV File
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={cn(
-                'border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer',
-                isDragging
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50',
-                file && 'border-success bg-success/5'
-              )}
-            >
-              {file ? (
-                <div className="space-y-4">
-                  <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-success/10">
-                    <CheckCircle className="h-6 w-6 text-success" />
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-primary" />
+                Upload CSV Batch
+              </CardTitle>
+              <CardDescription>Upload a CSV file and assign it a batch name.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={cn(
+                  'border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer',
+                  isDragging
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50',
+                  file && 'border-success bg-success/5'
+                )}
+              >
+                {file ? (
+                  <div className="space-y-4">
+                    <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-success/10">
+                      <CheckCircle className="h-6 w-6 text-success" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{file.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {(file.size / 1024).toFixed(2)} KB
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setFile(null);
+                        setUploadResult(null);
+                        setBatchName('');
+                      }}
+                      className="gap-2"
+                    >
+                      <X className="h-4 w-4" />
+                      Remove
+                    </Button>
                   </div>
-                  <div>
-                    <p className="font-medium">{file.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {(file.size / 1024).toFixed(2)} KB
-                    </p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-primary/10">
+                      <Upload className="h-6 w-6 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium">
+                        Drag & Drop CSV, or{' '}
+                        <Label
+                          htmlFor="file-upload"
+                          className="text-primary cursor-pointer hover:underline"
+                        >
+                          browse
+                        </Label>
+                      </p>
+                    </div>
+                    <Input
+                      id="file-upload"
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
                   </div>
+                )}
+              </div>
+
+              {file && (
+                <div className="space-y-2">
+                  <Label>Batch Name</Label>
+                  <Input
+                    value={batchName}
+                    onChange={(e) => setBatchName(e.target.value)}
+                    placeholder="e.g. Class 10 - 2024"
+                  />
+                  <p className="text-xs text-muted-foreground">This name will be used to filter matching photos and students later.</p>
+
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setFile(null);
-                      setUploadResult(null);
-                    }}
-                    className="gap-2"
+                    onClick={handleUpload}
+                    disabled={isUploading || !batchName.trim()}
+                    className="w-full mt-2 gradient-primary"
                   >
-                    <X className="h-4 w-4" />
-                    Remove
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Import Batch
+                      </>
+                    )}
                   </Button>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-primary/10">
-                    <Upload className="h-6 w-6 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-medium">
-                      Drop your CSV file here, or{' '}
-                      <Label
-                        htmlFor="file-upload"
-                        className="text-primary cursor-pointer hover:underline"
-                      >
-                        browse
-                      </Label>
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Supports CSV files up to 10MB
-                    </p>
-                  </div>
-                  <Input
-                    id="file-upload"
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </div>
               )}
-            </div>
+            </CardContent>
+          </Card>
 
-            {file && (
-              <Button
-                onClick={handleUpload}
-                disabled={isUploading}
-                className="w-full mt-4 gradient-primary"
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Upload & Import
-                  </>
-                )}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Results */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Import Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {uploadResult ? (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg bg-success/10 text-center">
-                    <p className="text-3xl font-bold text-success">
-                      {uploadResult.success}
-                    </p>
-                    <p className="text-sm text-muted-foreground">Successful</p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-destructive/10 text-center">
-                    <p className="text-3xl font-bold text-destructive">
-                      {uploadResult.failed}
-                    </p>
-                    <p className="text-sm text-muted-foreground">Failed</p>
-                  </div>
-                </div>
-
-                {uploadResult.errors.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-destructive" />
-                      Errors
-                    </p>
-                    <div className="max-h-48 overflow-auto rounded-lg border border-border p-3 bg-muted/30">
-                      {uploadResult.errors.map((error, index) => (
-                        <p key={index} className="text-xs text-muted-foreground">
-                          {error}
-                        </p>
-                      ))}
+          {/* Results */}
+          {uploadResult && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Import Results</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 rounded-lg bg-success/10 text-center">
+                      <p className="text-3xl font-bold text-success">
+                        {uploadResult.success}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Successful</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-destructive/10 text-center">
+                      <p className="text-3xl font-bold text-destructive">
+                        {uploadResult.failed}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Failed</p>
                     </div>
                   </div>
-                )}
-              </div>
+
+                  {uploadResult.errors.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                        Errors
+                      </p>
+                      <div className="max-h-48 overflow-auto rounded-lg border border-border p-3 bg-muted/30">
+                        {uploadResult.errors.map((error, index) => (
+                          <p key={index} className="text-xs text-muted-foreground">
+                            {error}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Existing Batches List */}
+        <Card className="h-full flex flex-col">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /> Existing Batches</CardTitle>
+            <CardDescription>Manage your uploaded student data groups</CardDescription>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-auto">
+            {loadingBatches ? (
+              <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>
+            ) : existingBatches.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Batch Name</TableHead>
+                    <TableHead className="text-right">Students</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {existingBatches.map((batch) => (
+                    <TableRow key={batch.name}>
+                      <TableCell className="font-medium">{batch.name}</TableCell>
+                      <TableCell className="text-right">{batch.count}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => deleteBatch(batch.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             ) : (
-              <div className="text-center py-12">
-                <FileSpreadsheet className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No import yet</h3>
-                <p className="text-sm text-muted-foreground">
-                  Upload a CSV file to see import results
-                </p>
+              <div className="text-center py-12 text-muted-foreground">
+                <p>No batches found.</p>
+                <p className="text-xs">Upload a CSV to create a batch.</p>
               </div>
             )}
           </CardContent>
         </Card>
+
       </div>
 
       {/* CSV Format Guide */}
@@ -356,21 +481,6 @@ export default function UploadData() {
                   <td className="py-2 pr-4 font-mono text-xs">email</td>
                   <td className="py-2 pr-4">No</td>
                   <td className="py-2">Student email address</td>
-                </tr>
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">phone</td>
-                  <td className="py-2 pr-4">No</td>
-                  <td className="py-2">Contact phone number</td>
-                </tr>
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">class</td>
-                  <td className="py-2 pr-4">No</td>
-                  <td className="py-2">Class or grade level</td>
-                </tr>
-                <tr>
-                  <td className="py-2 pr-4 font-mono text-xs">department</td>
-                  <td className="py-2 pr-4">No</td>
-                  <td className="py-2">Department or stream</td>
                 </tr>
               </tbody>
             </table>

@@ -13,6 +13,7 @@ import DesignStudio from "./pages/DesignStudio";
 import IDCards from "./pages/IDCards";
 import PrintJobs from "./pages/PrintJobs";
 import Settings from "./pages/Settings";
+import AdminSchools from "./pages/AdminSchools";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/design-studio" element={<DesignStudio />} />
             <Route path="/id-cards" element={<IDCards />} />
             <Route path="/print-jobs" element={<PrintJobs />} />
+            <Route path="/admin/schools" element={<AdminSchools />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

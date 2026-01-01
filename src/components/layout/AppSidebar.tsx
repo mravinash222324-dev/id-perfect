@@ -22,7 +22,7 @@ interface NavItem {
   title: string;
   icon: React.ElementType;
   href: string;
-  roles?: ('admin' | 'teacher' | 'printer')[];
+  roles?: ('admin' | 'teacher' | 'printer' | 'school')[];
 }
 
 const navItems: NavItem[] = [
@@ -30,25 +30,31 @@ const navItems: NavItem[] = [
     title: 'Dashboard',
     icon: LayoutDashboard,
     href: '/dashboard',
-    roles: ['admin', 'teacher', 'printer'],
+    roles: ['admin', 'teacher', 'printer', 'school'],
+  },
+  {
+    title: 'School Management',
+    icon: Users,
+    href: '/admin/schools',
+    roles: ['admin'],
   },
   {
     title: 'Students',
     icon: Users,
     href: '/students',
-    roles: ['admin', 'teacher'],
+    roles: ['teacher', 'school'], // Removed 'admin'
   },
   {
     title: 'Upload Data',
     icon: Upload,
     href: '/upload',
-    roles: ['admin', 'teacher'],
+    roles: ['teacher', 'school'], // Removed 'admin'
   },
   {
     title: 'Verification',
     icon: FileCheck,
     href: '/verification',
-    roles: ['admin', 'teacher'],
+    roles: ['teacher', 'school'], // Removed 'admin'
   },
   {
     title: 'Design Studio',
@@ -60,13 +66,13 @@ const navItems: NavItem[] = [
     title: 'ID Cards',
     icon: CreditCard,
     href: '/id-cards',
-    roles: ['admin'],
+    roles: ['school', 'teacher'], // Removed 'admin'
   },
   {
     title: 'Print Jobs',
     icon: Printer,
     href: '/print-jobs',
-    roles: ['admin', 'printer'],
+    roles: ['printer'], // Removed 'admin'
   },
   {
     title: 'Settings',
@@ -82,7 +88,9 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { signOut, role, user } = useAuth();
 
-  const filteredNavItems = navItems;
+  const filteredNavItems = navItems.filter(item =>
+    !item.roles || (role && item.roles.includes(role))
+  );
 
   const handleSignOut = async () => {
     await signOut();

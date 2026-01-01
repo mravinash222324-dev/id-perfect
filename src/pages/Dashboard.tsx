@@ -25,6 +25,8 @@ interface DashboardStats {
   pendingApprovals: number;
   generatedCards: number;
   printJobsCompleted: number;
+  totalSchools?: number;
+  activeTemplates?: number;
 }
 
 interface ActivityLog {
@@ -34,7 +36,7 @@ interface ActivityLog {
   created_at: string;
   details: any;
 }
-
+// ...
 export default function Dashboard() {
   const { role } = useAuth();
   const navigate = useNavigate();
@@ -43,34 +45,70 @@ export default function Dashboard() {
     pendingApprovals: 0,
     generatedCards: 0,
     printJobsCompleted: 0,
+    totalSchools: 0,
+    activeTemplates: 0,
   });
   const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // Fetch students count
-        const { count: studentCount } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true });
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return; // Wait for auth
 
-        // Fetch pending approvals
-        const { count: pendingCount } = await supabase
-          .from('students')
-          .select('*', { count: 'exact', head: true })
-          .eq('verification_status', 'pending');
-
-        // Fetch generated cards
-        const { count: cardsCount } = await supabase
-          .from('id_cards')
-          .select('*', { count: 'exact', head: true });
-
-        // Fetch completed print jobs
+        // Fetch Common Data (Print Jobs can be seen by both?)
         const { count: printedCount } = await supabase
           .from('print_jobs')
           .select('*', { count: 'exact', head: true })
           .in('status', ['printed', 'delivered']);
+
+        if (role === 'admin') {
+          // ADMIN METRICS
+          // Schools
+          const { count: schoolsCount } = await supabase
+            .from('user_roles')
+            .select('*', { count: 'exact', head: true })
+            .eq('role', 'school' as any);
+
+          // Templates
+          const { count: templatesCount } = await supabase
+            .from('id_templates')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'active');
+
+          setStats(prev => ({
+            ...prev,
+            totalSchools: schoolsCount || 0,
+            activeTemplates: templatesCount || 0,
+            printJobsCompleted: printedCount || 0
+          }));
+
+        } else {
+          // SCHOOL/TEACHER METRICS
+          // Students
+          const { count: studentCount } = await supabase
+            .from('students')
+            .select('*', { count: 'exact', head: true });
+
+          // Fetch pending approvals
+          const { count: pendingCount } = await supabase
+            .from('students')
+            .select('*', { count: 'exact', head: true })
+            .eq('verification_status', 'pending');
+
+          // Fetch generated cards
+          const { count: cardsCount } = await supabase
+            .from('id_cards')
+            .select('*', { count: 'exact', head: true });
+
+          setStats(prev => ({
+            ...prev,
+            totalStudents: studentCount || 0,
+            pendingApprovals: pendingCount || 0,
+            generatedCards: cardsCount || 0,
+            printJobsCompleted: printedCount || 0
+          }));
+        }
 
         // Fetch recent activity
         const { data: activityData } = await supabase
@@ -78,13 +116,6 @@ export default function Dashboard() {
           .select('*')
           .order('created_at', { ascending: false })
           .limit(5);
-
-        setStats({
-          totalStudents: studentCount || 0,
-          pendingApprovals: pendingCount || 0,
-          generatedCards: cardsCount || 0,
-          printJobsCompleted: printedCount || 0,
-        });
 
         setRecentActivity(activityData || []);
       } catch (error) {
@@ -94,8 +125,8 @@ export default function Dashboard() {
       }
     };
 
-    fetchDashboardData();
-  }, []);
+    if (role) fetchDashboardData();
+  }, [role]);
 
   const quickActions = [
     {
@@ -103,14 +134,14 @@ export default function Dashboard() {
       description: 'Import student data via CSV',
       icon: Users,
       href: '/upload',
-      roles: ['admin', 'teacher'],
+      roles: ['teacher', 'school'], // Removed 'admin'
     },
     {
       title: 'Verify Students',
       description: 'Review pending approvals',
       icon: FileCheck,
       href: '/verification',
-      roles: ['admin', 'teacher'],
+      roles: ['teacher', 'school'], // Removed 'admin'
     },
     {
       title: 'Design Studio',
@@ -124,7 +155,7 @@ export default function Dashboard() {
       description: 'Manage print queue',
       icon: Printer,
       href: '/print-jobs',
-      roles: ['admin', 'printer'],
+      roles: ['printer'], // Removed 'admin'
     },
   ].filter((action) => action.roles.includes(role || ''));
 
@@ -137,31 +168,57 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-        <StatCard
-          title="Total Students"
-          value={stats.totalStudents}
-          icon={Users}
-          trend={{ value: 12, isPositive: true }}
-        />
-        <StatCard
-          title="Pending Approvals"
-          value={stats.pendingApprovals}
-          icon={Clock}
-          iconClassName="bg-warning/10"
-          description={stats.pendingApprovals > 0 ? 'Requires attention' : 'All caught up!'}
-        />
-        <StatCard
-          title="Cards Generated"
-          value={stats.generatedCards}
-          icon={CreditCard}
-          trend={{ value: 8, isPositive: true }}
-        />
-        <StatCard
-          title="Print Jobs Done"
-          value={stats.printJobsCompleted}
-          icon={Printer}
-          iconClassName="bg-success/10"
-        />
+        {role === 'admin' ? (
+          <>
+            <StatCard
+              title="Total Schools"
+              value={stats.totalSchools || 0}
+              icon={Users}
+              trend={{ value: 5, isPositive: true }}
+            />
+            <StatCard
+              title="Active Templates"
+              value={stats.activeTemplates || 0}
+              icon={CreditCard}
+            />
+            {/* Removed Print Jobs Stat for Admin */}
+            <StatCard
+              title="System Status"
+              value={100}
+              icon={FileCheck}
+              iconClassName="bg-blue-500/10"
+              description="Operational"
+            />
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Total Students"
+              value={stats.totalStudents}
+              icon={Users}
+              trend={{ value: 12, isPositive: true }}
+            />
+            <StatCard
+              title="Pending Approvals"
+              value={stats.pendingApprovals}
+              icon={Clock}
+              iconClassName="bg-warning/10"
+              description={stats.pendingApprovals > 0 ? 'Requires attention' : 'All caught up!'}
+            />
+            <StatCard
+              title="Cards Generated"
+              value={stats.generatedCards}
+              icon={CreditCard}
+              trend={{ value: 8, isPositive: true }}
+            />
+            <StatCard
+              title="Print Jobs"
+              value={stats.printJobsCompleted}
+              icon={Printer}
+              iconClassName="bg-success/10"
+            />
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

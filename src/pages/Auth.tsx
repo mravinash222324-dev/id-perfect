@@ -18,6 +18,7 @@ const signInSchema = z.object({
 
 const signUpSchema = z.object({
   fullName: z.string().min(2, 'Name must be at least 2 characters'),
+  institutionName: z.string().optional(),
   email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   confirmPassword: z.string(),
@@ -36,6 +37,12 @@ export default function Auth() {
   const navigate = useNavigate();
   const { signIn, signUp, user } = useAuth();
 
+  // Check for role & token in URL
+  const searchParams = new URLSearchParams(window.location.search);
+  const inviteRole = searchParams.get('role');
+  const inviteToken = searchParams.get('token');
+  const isSchoolInvite = inviteRole === 'school';
+
   const signInForm = useForm<SignInFormData>({
     resolver: zodResolver(signInSchema),
     defaultValues: { email: '', password: '' },
@@ -43,13 +50,22 @@ export default function Auth() {
 
   const signUpForm = useForm<SignUpFormData>({
     resolver: zodResolver(signUpSchema),
-    defaultValues: { fullName: '', email: '', password: '', confirmPassword: '' },
+    defaultValues: { fullName: '', institutionName: '', email: '', password: '', confirmPassword: '' },
   });
+
+  // Basic Token Check on Mount (UX only, real security is in AuthContext/DB)
+  // We explicitly DON'T block page load here to avoid flicker, but signUp will fail if bad.
+  // Optional: Could fetch token status here to show "Invalid Link" error immediately.
 
   // Redirect if already logged in
   if (user) {
     navigate('/dashboard', { replace: true });
     return null;
+  }
+
+  // Auto-switch to signup if invited
+  if (isSchoolInvite && !isSignUp) {
+    setIsSignUp(true);
   }
 
   const handleSignIn = async (data: SignInFormData) => {
@@ -67,7 +83,15 @@ export default function Auth() {
 
   const handleSignUp = async (data: SignUpFormData) => {
     setIsLoading(true);
-    const { error } = await signUp(data.email, data.password, data.fullName);
+    // Pass metadata including optional institutionName and inviteToken
+    const { error } = await signUp(
+      data.email,
+      data.password,
+      data.fullName,
+      inviteRole || undefined,
+      data.institutionName,
+      inviteToken || undefined // Pass token to context
+    );
     setIsLoading(false);
 
     if (error) {
@@ -86,6 +110,7 @@ export default function Auth() {
     <div className="min-h-screen flex">
       {/* Left side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 gradient-primary relative overflow-hidden">
+        {/* ... (branding content check original) ... */}
         <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-transparent" />
         <div className="relative z-10 flex flex-col justify-center p-12 text-primary-foreground">
           <div className="mb-8">
@@ -97,7 +122,7 @@ export default function Auth() {
               Professional ID card creation and printing management system for educational institutions.
             </p>
           </div>
-          
+
           <div className="space-y-6 mt-12">
             <div className="flex items-start gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/10">
@@ -134,7 +159,7 @@ export default function Auth() {
             </div>
           </div>
         </div>
-        
+
         {/* Decorative elements */}
         <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-primary-foreground/5" />
         <div className="absolute -top-16 -right-16 h-64 w-64 rounded-full bg-primary-foreground/5" />
@@ -153,12 +178,14 @@ export default function Auth() {
 
           <div className="space-y-2 text-center">
             <h2 className="text-2xl font-bold tracking-tight">
-              {isSignUp ? 'Create an account' : 'Welcome back'}
+              {isSchoolInvite ? 'Create School Account' : (isSignUp ? 'Create an account' : 'Welcome back')}
             </h2>
             <p className="text-muted-foreground">
-              {isSignUp
-                ? 'Enter your details to get started'
-                : 'Sign in to access your dashboard'}
+              {isSchoolInvite
+                ? 'Register your institution to get started'
+                : (isSignUp
+                  ? 'Enter your details to get started'
+                  : 'Sign in to access your dashboard')}
             </p>
           </div>
 
@@ -194,7 +221,7 @@ export default function Auth() {
           {isSignUp ? (
             <form onSubmit={signUpForm.handleSubmit(handleSignUp)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
+                <Label htmlFor="fullName">{isSchoolInvite ? 'Administrator Name' : 'Full Name'}</Label>
                 <Input
                   id="fullName"
                   placeholder="John Doe"
@@ -207,6 +234,18 @@ export default function Auth() {
                   </p>
                 )}
               </div>
+
+              {isSchoolInvite && (
+                <div className="space-y-2">
+                  <Label htmlFor="institutionName">Institution Name</Label>
+                  <Input
+                    id="institutionName"
+                    placeholder="e.g. Springfield High School"
+                    {...signUpForm.register('institutionName')}
+                    className="h-11"
+                  />
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>

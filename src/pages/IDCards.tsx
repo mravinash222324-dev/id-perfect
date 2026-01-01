@@ -50,14 +50,32 @@ export default function IDCards() {
       try {
         const [templatesRes, studentsRes] = await Promise.all([
           supabase.from('id_templates').select('*').eq('status', 'active'),
-          supabase.from('students').select('*').order('roll_number')
+          supabase.from('students').select('*').eq('verification_status', 'approved').order('roll_number')
         ]);
 
         if (studentsRes.error) throw studentsRes.error;
 
-        // Load local templates
-        const localTemplates = JSON.parse(localStorage.getItem('id_templates_local') || '[]');
-        const dbTemplates = templatesRes.data || [];
+        // Load local templates ONLY if Admin (to prevent seeing unassigned drafts)
+        // Access role from Supabase session directly here since we are inside a fetch
+        const { data: { user } } = await supabase.auth.getUser();
+        let role = null;
+        if (user) {
+          const { data: roleData } = await supabase.from('user_roles').select('role').eq('user_id', user.id).single();
+          role = roleData?.role;
+        }
+
+        const localTemplates = (role === 'admin')
+          ? JSON.parse(localStorage.getItem('id_templates_local') || '[]')
+          : [];
+
+        let dbTemplates = templatesRes.data || [];
+
+        // STRICT FILTER: If not admin, only show templates explicitly assigned to this user
+        if (role !== 'admin' && user) {
+          dbTemplates = dbTemplates.filter((t: any) =>
+            t.assigned_schools && t.assigned_schools.includes(user.id)
+          );
+        }
 
         // Merge without duplicates (if any)
         const mergedTemplates = [...dbTemplates, ...localTemplates];
@@ -129,11 +147,7 @@ export default function IDCards() {
       format: [widthMm, heightMm]
     });
 
-    // 2. Setup hidden canvas for rendering
-    const canvasEl = document.createElement('canvas');
-    canvasEl.width = widthPx;
-    canvasEl.height = heightPx;
-
+    // 2. Rendering Loop
     try {
       // Loop through selected students
       for (let i = 0; i < selectedStudents.length; i++) {
@@ -143,31 +157,34 @@ export default function IDCards() {
 
         if (i > 0) doc.addPage([widthMm, heightMm]);
 
+        // Fix: Create NEW canvas element for each iteration to avoid reuse pollution
+        const canvasEl = document.createElement('canvas');
+        canvasEl.width = widthPx;
+        canvasEl.height = heightPx;
+
         const canvas = new fabric.StaticCanvas(canvasEl);
         const cardOverride = reviewOverrides.get(studentId) || {};
 
         // --- FRONT SIDE ---
-        const frontOverride = cardOverride.front;
-        // If override exists, use it. Else use template.
-        let frontSource = frontOverride || template.front_design;
+        let frontSource = cardOverride.front || template.front_design;
 
-        // Backward Compatibility Fix for Front
+        // 1. Unwrap legacy nested front_design if present
         if (frontSource && frontSource.front_design) {
           frontSource = frontSource.front_design;
         }
-
+        // 2. Parse if string
         if (typeof frontSource === 'string') {
           try { frontSource = JSON.parse(frontSource); } catch (e) { }
         }
 
         if (frontSource) {
+          // Clear and load Front
+          canvas.clear();
           await canvas.loadFromJSON(frontSource);
 
-          // Only perform replacements if NO override was used (override is already compiled)
-          if (!frontOverride) {
+          if (!cardOverride.front) {
             await performReplacements(canvas, student, bulkPhotos);
           }
-
           canvas.renderAll();
           const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
           doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
@@ -180,31 +197,29 @@ export default function IDCards() {
         }
 
         // --- BACK SIDE ---
-        // Check if template has back design or if there's a back override
         let backSource = cardOverride.back || template.back_design;
 
-        // Backward Compatibility Fix for Back
-        if (backSource && backSource.back_design) {
-          backSource = backSource.back_design;
-        } else if (!backSource && template.front_design?.back_design) {
-          // Handle case where back design was nested inside front_design column
+        // 1. Fallback: Check if back matches "front" legacy pattern or nested
+        if (!backSource && template.front_design?.back_design) {
           backSource = template.front_design.back_design;
         }
+        // 2. Unwrap legacy nested back_design if present (e.g. from a bad save)
+        if (backSource && backSource.back_design) {
+          backSource = backSource.back_design;
+        }
 
+        // 3. Parse if string
         if (typeof backSource === 'string') {
           try { backSource = JSON.parse(backSource); } catch (e) { }
         }
 
         if (backSource) {
-          // Add new page for back side
           doc.addPage([widthMm, heightMm]);
 
+          // Clear and load Back
           canvas.clear();
-          canvas.backgroundColor = '#ffffff';
-
           await canvas.loadFromJSON(backSource);
 
-          // Only perform replacements if NO override was used
           if (!cardOverride.back) {
             await performReplacements(canvas, student, bulkPhotos);
           }
@@ -219,6 +234,8 @@ export default function IDCards() {
             doc.rect(0, 0, widthMm, heightMm);
           }
         }
+
+
 
         canvas.dispose(); // Dispose canvas after use (re-created next loop, or we could reuse)
       }
@@ -472,18 +489,13 @@ async function performReplacements(canvas: any, student: any, bulkPhotos: Map<st
       // Debug Matching
       if (!imgUrl && bulkPhotos.size > 0) {
         const rollKey = student.roll_number?.toLowerCase().trim();
-        console.log(`[Photo Match] Trying to match student '${student.name}' (Roll: ${rollKey}) against ${bulkPhotos.size} photos.`);
 
         if (rollKey && bulkPhotos.has(rollKey)) {
-          console.log(`[Photo Match] FOUND match for ${rollKey}`);
           const file = bulkPhotos.get(rollKey);
           if (file) {
             imgUrl = URL.createObjectURL(file);
             // isFile = true;
           }
-        } else {
-          // To help user debug, log near misses or sample keys
-          console.log(`[Photo Match] NO match for ${rollKey}. Sample keys:`, Array.from(bulkPhotos.keys()).slice(0, 3));
         }
       }
 
@@ -538,63 +550,26 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
   useEffect(() => {
     if (!isOpen || !canvasRef.current) return;
 
-    console.log("Initializing review canvas...");
-    let isMounted = true;
-    let activeCanvas: fabric.Canvas | null = null;
-    let retryCount = 0;
-    const maxRetries = 10;
+    // console.log("Initializing review canvas...");
+    // Safety check just in case template is undefined (though isOpen check in parent should handle it)
+    const widthPx = template?.card_width || 1011;
+    const heightPx = template?.card_height || 638;
 
-    const initCanvas = async () => {
-      if (!isMounted || !canvasRef.current || !isOpen) return;
+    const newCanvas = new fabric.Canvas(canvasRef.current, {
+      width: widthPx,
+      height: heightPx,
+      backgroundColor: '#ffffff',
+      selection: true,
+      renderOnAddRemove: false // Optimization: manual render
+    });
 
-      try {
-        // Check if already initialized by Fabric
-        if (canvasRef.current.classList.contains('lower-canvas')) {
-          throw new Error("Canvas element is already initialized (DOM check)");
-        }
-
-        const widthPx = template?.card_width || 1011;
-        const heightPx = template?.card_height || 638;
-
-        const newCanvas = new fabric.Canvas(canvasRef.current, {
-          width: widthPx,
-          height: heightPx,
-          backgroundColor: '#ffffff',
-          selection: true,
-          renderOnAddRemove: false
-        });
-
-        activeCanvas = newCanvas;
-        setCanvas(newCanvas);
-        console.log("Review canvas initialized successfully.");
-
-      } catch (err: any) {
-        console.warn(`Review canvas init attempt ${retryCount + 1} failed:`, err.message);
-        if (retryCount < maxRetries && isMounted) {
-          retryCount++;
-          setTimeout(initCanvas, 50);
-        } else {
-          console.error("Critical: Failed to initialize review canvas.");
-        }
-      }
-    };
-
-    initCanvas();
+    setCanvas(newCanvas);
 
     return () => {
-      isMounted = false;
-      console.log("Disposing review canvas...");
-      if (activeCanvas) {
-        activeCanvas.dispose().then(() => {
-          console.log("Review canvas disposed.");
-        }).catch(err => console.error("Error disposing review canvas:", err));
-      }
+      newCanvas.dispose().catch(err => console.error("Error disposing canvas:", err));
       setCanvas(null);
     };
-  }, [isOpen]); // Simplfied deps to only isOpen, use refs/state for others inside or handle inside load effect. 
-  // Wait, if template dimensions change we might need to recreate? Usually template doesn't change while modal is open.
-  // We'll stick to isOpen as the primary trigger to avoid unnecessary re-inits.
-
+  }, [isOpen, canvasRef.current, template?.card_width, template?.card_height]);
 
 
   // Load Student Data
@@ -632,9 +607,8 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
         console.log("Detected wrapped template format, unwrapping...");
         sourceJson = activeSide === 'front' ? sourceJson.front_design : sourceJson.back_design;
       } else if (activeSide === 'back' && !sourceJson && template.front_design?.back_design) {
-        // Handle specific case for Back side where it was nested in front column
-        // and template.back_design was null (so sourceJson is null)
-        console.log("Detected back design nested in front column...");
+        // Fallback: If back is empty but found inside front_design (legacy bug)
+        console.log("Found back design nested in front column (legacy fix)");
         sourceJson = template.front_design.back_design;
       }
 
