@@ -31,6 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!error && data) {
       setRole(data.role as AppRole);
+    } else {
+      // Fallback to metadata if DB fetch fails (robustness)
+      const metadataRole = user?.user_metadata?.role as AppRole;
+      if (metadataRole) setRole(metadataRole);
     }
   };
 

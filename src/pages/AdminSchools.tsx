@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { createClient } from '@supabase/supabase-js';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -105,6 +106,182 @@ export default function AdminSchools() {
     const [allTemplates, setAllTemplates] = useState<any[]>([]);
     const [schoolTemplateIds, setSchoolTemplateIds] = useState<string[]>([]);
     const [isSavingTemplates, setIsSavingTemplates] = useState(false);
+
+    // Create School State
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [newSchoolName, setNewSchoolName] = useState('');
+    const [newSchoolEmail, setNewSchoolEmail] = useState('');
+    const [newSchoolPassword, setNewSchoolPassword] = useState('');
+    const [newSchoolTemplates, setNewSchoolTemplates] = useState<string[]>([]);
+    const [creationLoading, setCreationLoading] = useState(false);
+
+    const createSchoolAccount = async () => {
+        if (!newSchoolName || !newSchoolEmail || !newSchoolPassword) {
+            toast.error("Please fill in all fields");
+            return;
+        }
+
+        setCreationLoading(true);
+        try {
+            // 1. Create a SECONDARY client to avoid messing with Admin session
+            // We use the same URL and Key, but this client will sign in as the NEW user
+            const tempClient = createClient(
+                import.meta.env.VITE_SUPABASE_URL,
+                import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                {
+                    auth: {
+                        persistSession: false, // Don't overwrite local storage
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false
+                    }
+                }
+            );
+
+            // 2. Sign Up the new user
+            const { data: authData, error: authError } = await tempClient.auth.signUp({
+                email: newSchoolEmail,
+                password: newSchoolPassword,
+                options: {
+                    data: {
+                        full_name: newSchoolName,
+                        role: 'school',
+                        institution_name: newSchoolName
+                    }
+                }
+            });
+
+            if (authError) throw authError;
+            if (!authData.user) throw new Error("No user returned");
+
+            const userId = authData.user.id;
+
+            // 3. Manually create Profile & Role (Using ADMIN client)
+            // Because triggers are disabled/unreliable per previous fixes
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .insert([{
+                    id: userId,
+                    full_name: newSchoolName,
+                    role: 'school',
+                    institution_name: newSchoolName
+                }] as any);
+
+            if (profileError) {
+                console.error("Profile creation error:", profileError);
+                // Continue anyway, might have been created by trigger if re-enabled
+            }
+
+            const { error: roleError } = await supabase
+                .from('user_roles')
+                .insert([{ user_id: userId, role: 'school' } as any]);
+
+            if (roleError) console.error("Role creation error:", roleError);
+
+            // 4. Assign Templates (Using ADMIN client)
+            if (newSchoolTemplates.length > 0) {
+                const updates = allTemplates
+                    .filter(t => newSchoolTemplates.includes(t.id))
+                    .map(async (t) => {
+                        const current = t.assigned_schools || [];
+                        if (!current.includes(userId)) {
+                            await supabase
+                                .from('id_templates')
+                                .update({ assigned_schools: [...current, userId] } as any)
+                                .eq('id', t.id);
+                        }
+                    });
+                await Promise.all(updates);
+            }
+
+            // 5. Generate Magic Access Link
+            // We need the refresh token from the NEW session
+            const refreshToken = authData.session?.refresh_token;
+            if (!refreshToken) throw new Error("Could not retrieve session info");
+
+            const accessToken = authData.session?.access_token;
+
+            const { data: linkData, error: linkError } = await supabase
+                .from('dashboard_access_links' as any)
+                .insert([{
+                    refresh_token: refreshToken,
+                    access_token: accessToken,
+                    user_id: userId
+                }])
+                .select('id')
+                .single() as any;
+
+            if (linkError) throw linkError;
+
+            // 6. Success
+            const magicLink = `${window.location.origin}/magic-login?token=${linkData.id}`;
+            setInviteLink(magicLink);
+            setCopied(false);
+            setIsCreateOpen(false); // Close create modal
+
+            // Show invite modal (reuse existing one or create new?) 
+            // We'll reuse the existing invite link dialog state 'setInviteLink' sends it there, 
+            // but we need to trigger the dialog open. 
+            // Ideally we should have separate state, but for now we can just display it.
+            // Let's open a specific "Success" dialog. For now, pop toast and show in our Invite Dialog?
+            // Actually, let's just use the toast for now or reuse the dialog trigger programmatically?
+            // A simple "Create Success" dialog is better.
+
+            // Re-using the InviteLink state mechanism:
+            // The existing dialog is triggered by `DialogTrigger`. We can't easily open it programmatically without refactoring.
+            // I'll add a separate "Success" dialog state.
+            setCreatedLink(magicLink);
+            setIsSuccessOpen(true);
+
+            toast.success("School account created & templates assigned!");
+            fetchSchools(); // Refresh list
+
+        } catch (error: any) {
+            console.error("Creation error:", error);
+            toast.error(error.message || "Failed to create school account");
+        } finally {
+            setCreationLoading(false);
+        }
+    };
+
+    const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+    const [createdLink, setCreatedLink] = useState('');
+
+    // View Link Logic
+    const [retrievedLink, setRetrievedLink] = useState('');
+    const [isViewLinkOpen, setIsViewLinkOpen] = useState(false);
+    const [viewLinkLoading, setViewLinkLoading] = useState(false);
+
+    const viewSchoolLink = async (school: SchoolProfile) => {
+        setViewLinkLoading(true);
+        setRetrievedLink('');
+        try {
+            // Fetch the LATEST valid link for this user
+            const { data, error } = await supabase
+                .from('dashboard_access_links' as any)
+                .select('id')
+                .eq('user_id', school.user_id || school.id) // Fallback to id if user_id missing in profile type
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle() as any;
+
+            if (error) throw error;
+
+            if (!data) {
+                toast.error("No active magic link found for this school");
+                return;
+            }
+
+            const link = `${window.location.origin}/magic-login?token=${data.id}`;
+            setRetrievedLink(link);
+            setIsViewLinkOpen(true);
+
+        } catch (error: any) {
+            console.error("Error fetching link:", error);
+            toast.error("Failed to fetch link");
+        } finally {
+            setViewLinkLoading(false);
+        }
+    };
 
     const generateInviteLink = async () => {
         try {
@@ -256,6 +433,111 @@ export default function AdminSchools() {
                     </DialogContent>
                 </Dialog>
 
+                {/* Create Account Dialog */}
+                <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                    <DialogTrigger asChild>
+                        <Button className="gap-2" variant="outline">
+                            <Plus className="h-4 w-4" />
+                            Create Account
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                            <DialogTitle>Create School Account</DialogTitle>
+                            <DialogDescription>
+                                Manually create an account and get a direct access link.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">School Name</label>
+                                <Input value={newSchoolName} onChange={e => setNewSchoolName(e.target.value)} placeholder="St. Mary's High School" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Email</label>
+                                <Input value={newSchoolEmail} onChange={e => setNewSchoolEmail(e.target.value)} placeholder="admin@school.com" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Password</label>
+                                <Input value={newSchoolPassword} onChange={e => setNewSchoolPassword(e.target.value)} placeholder="Secure Password" />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Assign Templates (Optional)</label>
+                                <div className="border rounded-md p-2 h-32 overflow-y-auto space-y-2">
+                                    {allTemplates.map(t => (
+                                        <div key={t.id} className="flex items-center space-x-2">
+                                            <input
+                                                type="checkbox"
+                                                id={`new-tpl-${t.id}`}
+                                                checked={newSchoolTemplates.includes(t.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setNewSchoolTemplates([...newSchoolTemplates, t.id]);
+                                                    else setNewSchoolTemplates(newSchoolTemplates.filter(id => id !== t.id));
+                                                }}
+                                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                            />
+                                            <label htmlFor={`new-tpl-${t.id}`} className="text-sm cursor-pointer text-gray-700">{t.name}</label>
+                                        </div>
+                                    ))}
+                                    {allTemplates.length === 0 && <p className="text-xs text-muted-foreground">No templates available.</p>}
+                                </div>
+                            </div>
+
+                            <Button onClick={createSchoolAccount} disabled={creationLoading} className="w-full">
+                                {creationLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                Create & Generate Link
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Success Dialog */}
+                <Dialog open={isSuccessOpen} onOpenChange={setIsSuccessOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Account Created!</DialogTitle>
+                            <DialogDescription>
+                                The account for <strong>{newSchoolName}</strong> is ready.
+                                Share this "Magic Link" with the client. It will log them in immediately.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex items-center gap-2 mt-4">
+                            <Input value={createdLink} readOnly />
+                            <Button size="icon" variant="outline" onClick={() => {
+                                navigator.clipboard.writeText(createdLink);
+                                toast.success("Magic link copied!");
+                            }}>
+                                <Copy className="h-4 w-4" />
+                            </Button>
+                        </div>
+                        <div className="bg-green-50 text-green-800 p-3 rounded-md text-sm mt-2">
+                            <strong>Success:</strong> This magic link is permanent and can be used anytime to log in.
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* View Retrieved Link Dialog */}
+                <Dialog open={isViewLinkOpen} onOpenChange={setIsViewLinkOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Access Link</DialogTitle>
+                            <DialogDescription>
+                                Here is the magic link for this school.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex items-center gap-2 mt-4">
+                            <Input value={retrievedLink} readOnly />
+                            <Button size="icon" variant="outline" onClick={() => {
+                                navigator.clipboard.writeText(retrievedLink);
+                                toast.success("Link copied!");
+                            }}>
+                                <Copy className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
                 {/* Manage Templates Dialog */}
                 <Dialog open={isManageTemplatesOpen} onOpenChange={setIsManageTemplatesOpen}>
                     <DialogContent className="max-w-md">
@@ -365,6 +647,12 @@ export default function AdminSchools() {
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem onClick={() => toast.info("View details coming soon")}>
                                                             View Details
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => viewSchoolLink(school)}>
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <Copy className="h-4 w-4" />
+                                                                View Access Link
+                                                            </div>
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator />
                                                         <DropdownMenuItem className="text-destructive">

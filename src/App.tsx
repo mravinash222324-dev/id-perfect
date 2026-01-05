@@ -14,6 +14,7 @@ import IDCards from "./pages/IDCards";
 import PrintJobs from "./pages/PrintJobs";
 import Settings from "./pages/Settings";
 import AdminSchools from "./pages/AdminSchools";
+import MagicLogin from "./pages/MagicLogin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/magic-login" element={<MagicLogin />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/students" element={<Students />} />
             <Route path="/upload" element={<UploadData />} />
