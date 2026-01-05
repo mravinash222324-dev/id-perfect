@@ -72,7 +72,7 @@ const navItems: NavItem[] = [
     title: 'Print Jobs',
     icon: Printer,
     href: '/print-jobs',
-    roles: ['printer'], // Removed 'admin'
+    roles: ['printer', 'admin'],
   },
   {
     title: 'Settings',

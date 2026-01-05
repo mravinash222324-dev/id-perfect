@@ -43,28 +43,13 @@ export default function UploadData() {
   const fetchBatches = async () => {
     setLoadingBatches(true);
     try {
-      // Fetch all batches. In a real app with 10k+ rows, this should be an RPC or a separate table.
-      // For now, we fetch distinct batches by selecting 'batch' column.
       const { data, error } = await supabase
-        .from('students')
-        .select('batch, created_at')
+        .from('print_batches' as any)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      // Group by batch name to get counts or just unique names
-      const batches = new Map();
-      data?.forEach((item: any) => {
-        if (item.batch) {
-          if (!batches.has(item.batch)) {
-            batches.set(item.batch, { name: item.batch, count: 0, last_upload: item.created_at });
-          }
-          batches.get(item.batch).count++;
-        }
-      });
-
-      setExistingBatches(Array.from(batches.values()));
-
+      setExistingBatches(data || []);
     } catch (err) {
       console.error("Error fetching batches:", err);
     } finally {
@@ -144,11 +129,28 @@ export default function UploadData() {
         return;
       }
 
+      // 1. Create Print Batch Record
+      const { data: batchData, error: batchError } = await supabase
+        .from('print_batches' as any)
+        .insert([{
+          batch_name: batchName,
+          school_id: (await supabase.auth.getUser()).data.user?.id,
+          status: 'draft'
+        }])
+        .select()
+        .single();
+
+      if (batchError) {
+        toast.error("Failed to crate batch: " + batchError.message);
+        setIsUploading(false);
+        return;
+      }
+
+      const batchId = (batchData as any).id;
+
       let success = 0;
       let failed = 0;
       const errors: string[] = [];
-
-      // Check if batch exists? We assume append is okay, or user wants to add to existing batch.
 
       for (const row of rows) {
         try {
@@ -161,25 +163,18 @@ export default function UploadData() {
             blood_group: row.blood_group || row.blood_type || null,
             class: row.class || row.grade || null,
             department: row.department || row.dept || null,
-            batch: batchName.trim(), // USE THE USER PROVIDED BATCH NAME
+            batch: batchName.trim(),
+            print_batch_id: batchId, // Link to print batch
             guardian_name: row.guardian_name || row.parent_name || null,
             address: row.address || null,
-            verification_status: 'pending',
+            verification_status: 'approved', // Auto-approve CSV uploads from schools
+            school_id: (await supabase.auth.getUser()).data.user?.id,
           };
 
           const { error } = await supabase.from('students').insert(studentData);
 
           if (error) {
             if (error.code === '23505') {
-              // Duplicate Roll Number
-              // Try Updating instead?
-              // The user said "collision... select batch is priority".
-              // If we are uploading New Data, maybe we should UPSERT?
-              // Let's try upsert if insert fails, OR just upsert by default logic if we want to "Replace".
-              // But 'students' table PK is UUID. Roll Number is unique key? 
-              // If roll number is unique constraint, we have a problem if different batches share roll numbers.
-              // Assuming Roll Number is globally unique for now based on constraint.
-              // Let's report dupes.
               errors.push(`Duplicate roll number: ${studentData.roll_number}`);
             } else {
               errors.push(`Row ${success + failed + 1}: ${error.message}`);
@@ -211,13 +206,19 @@ export default function UploadData() {
     }
   };
 
-  const deleteBatch = async (batchToDelete: string) => {
-    if (!confirm(`Are you sure you want to delete ALL students in batch "${batchToDelete}"? This cannot be undone.`)) return;
+  const deleteBatch = async (batchName: string) => {
+    // Note: We should delete by ID ideally, but keeping legacy name arg for now
+    if (!confirm(`Are you sure you want to delete batch "${batchName}"?`)) return;
 
     try {
-      const { error } = await supabase.from('students').delete().eq('batch', batchToDelete);
-      if (error) throw error;
-      toast.success(`Batch "${batchToDelete}" deleted.`);
+      // 1. Delete Students
+      const { error: stuError } = await supabase.from('students').delete().eq('batch', batchName);
+      if (stuError) throw stuError;
+
+      // 2. Delete Batch Record
+      await supabase.from('print_batches' as any).delete().eq('batch_name', batchName);
+
+      toast.success(`Batch "${batchName}" deleted.`);
       fetchBatches();
     } catch (err) {
       console.error("Delete failed", err);
@@ -423,18 +424,43 @@ export default function UploadData() {
                 </TableHeader>
                 <TableBody>
                   {existingBatches.map((batch) => (
-                    <TableRow key={batch.name}>
-                      <TableCell className="font-medium">{batch.name}</TableCell>
-                      <TableCell className="text-right">{batch.count}</TableCell>
+                    <TableRow key={batch.id}>
+                      <TableCell className="font-medium">
+                        {batch.batch_name}
+                        <br />
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${batch.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          batch.status === 'submitted' ? 'bg-blue-100 text-blue-800' :
+                            batch.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                          }`}>
+                          {batch.status?.toUpperCase() || 'DRAFT'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs">
+                        {new Date(batch.created_at).toLocaleDateString()}
+                      </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => deleteBatch(batch.name)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {batch.status === 'draft' && (
+                            <Button size="sm" variant="default" className="h-7 text-xs" onClick={async () => {
+                              if (confirm("Submit this batch to the Print Shop? You won't be able to edit it easily after.")) {
+                                await supabase.from('print_batches' as any).update({ status: 'submitted', submitted_at: new Date() }).eq('id', batch.id);
+                                toast.success("Batch Submited!");
+                                fetchBatches();
+                              }
+                            }}>
+                              Submit
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => deleteBatch(batch.batch_name)} // Note: logic needs update to delete by ID
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
