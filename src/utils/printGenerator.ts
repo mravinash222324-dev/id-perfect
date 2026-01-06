@@ -21,7 +21,8 @@ interface CardDimension {
 
 export const generateA4BatchPDF = async (
     imageDatums: { front: string, back?: string }[], // Array of base64 PNGs
-    filename: string = 'print_batch.pdf'
+    filename: string = 'print_batch.pdf',
+    dimensions?: { width: number; height: number } // Optional template dimensions to calculate ratio
 ) => {
     try {
         const doc = new jsPDF({
@@ -30,8 +31,10 @@ export const generateA4BatchPDF = async (
             format: 'a4'
         });
 
-        const cardWidth = 85.6;
-        const cardHeight = 54;
+        // 1. Define Slot Size (CR80 Standard Slot on A4)
+        const slotWidth = 85.6;
+        const slotHeight = 54;
+
         const marginX = 15; // Centered roughly
         const marginY = 10;
         const gapX = 5;
@@ -40,8 +43,6 @@ export const generateA4BatchPDF = async (
         const cols = 2;
         const rows = 5;
         const cardsPerSheet = cols * rows;
-
-        let currentCardIndex = 0;
 
         // Helper to add a sheet of faces
         const addSheet = (images: string[]) => {
@@ -53,14 +54,45 @@ export const generateA4BatchPDF = async (
                 const colIndex = i % cols;
                 const rowIndex = Math.floor(i / cols);
 
-                const x = marginX + (colIndex * (cardWidth + gapX));
-                const y = marginY + (rowIndex * (cardHeight + gapY));
+                const slotX = marginX + (colIndex * (slotWidth + gapX));
+                const slotY = marginY + (rowIndex * (slotHeight + gapY));
 
-                doc.addImage(img, 'PNG', x, y, cardWidth, cardHeight);
+                // 2. Calculate Aspect Ratio Fit
+                let drawW = slotWidth;
+                let drawH = slotHeight;
+                let drawX = slotX;
+                let drawY = slotY;
 
-                // Optional: Cut marks?
+                if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
+                    const imgRatio = dimensions.width / dimensions.height;
+                    const slotRatio = slotWidth / slotHeight;
+
+                    // If Image is Portrait and Slot is Landscape (and significant diff), 
+                    // maybe we should rotate? 
+                    // For now, let's just FIT (contain) to prevent invalid cutting.
+                    // Or typically, ID cards printed on A4 sheets SHOULD be rotated if they are vertical design.
+
+                    // Simple "Contain" logic:
+                    if (imgRatio > slotRatio) {
+                        // Image is wider than slot (relative to height) -> Constrain by Width
+                        drawW = slotWidth;
+                        drawH = slotWidth / imgRatio;
+                        // Center vertically
+                        drawY = slotY + (slotHeight - drawH) / 2;
+                    } else {
+                        // Image is taller than slot -> Constrain by Height
+                        drawH = slotHeight;
+                        drawW = slotHeight * imgRatio;
+                        // Center horizontally
+                        drawX = slotX + (slotWidth - drawW) / 2;
+                    }
+                }
+
+                doc.addImage(img, 'PNG', drawX, drawY, drawW, drawH);
+
+                // Optional: Cut marks (Always draw full slot size reference)
                 doc.setDrawColor(200);
-                doc.rect(x, y, cardWidth, cardHeight); // Light border for cutting
+                doc.rect(slotX, slotY, slotWidth, slotHeight); // Light border to show the "Cell"
             }
         };
 
@@ -74,17 +106,7 @@ export const generateA4BatchPDF = async (
             // 1. Draw Fronts
             addSheet(chunk.map(c => c.front));
 
-            // 2. If Backs exist, add a NEW PAGE for Backs (Duplex friendly?)
-            // Usually printers want Front Page 1, Back Page 1.
-            // But aligned so that Back of Card 1 (Col 1) is behind Front of Card 1.
-            // On the back sheet, Col 2 (Right) aligns with Front Col 1 (Left)?
-            // Detailed Duplex logic:
-            // Front Sheet: [C1] [C2]
-            // Back Sheet:  [C2-Back] [C1-Back] (Mirrored)
-
-            // For now, let's just do Fronts unless specifically asked for complex duplex.
-            // The user prompt didn't specify duplex mirroring, just "10 ids".
-            // I'll stick to Fronts for this pass to keep it simple, or add standard sequential pages.
+            // Backs skipped for now as per previous logic
         }
 
         doc.save(filename);

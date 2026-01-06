@@ -9,6 +9,13 @@ import {
   Edit,
 } from 'lucide-react';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -55,7 +62,7 @@ export default function PrintJobs() {
 
       const enhancedBatches = await Promise.all((batchesData || []).map(async (batch: any) => {
         // Get student count
-        const { count } = await supabase
+        const { count } = await (supabase as any)
           .from('students')
           .select('*', { count: 'exact', head: true })
           .eq('print_batch_id', batch.id);
@@ -91,7 +98,7 @@ export default function PrintJobs() {
     try {
       // 1. Fetch Students
       const { data: students, error } = await supabase
-        .from('students')
+        .from('students' as any)
         .select('*')
         .eq('print_batch_id', batch.id);
 
@@ -167,7 +174,11 @@ export default function PrintJobs() {
       // 4. Generate PDF
       // Note: generateA4BatchPDF returns a boolean success flag, not the PDF object.
       // It handles calling doc.save() internally.
-      const success = await generateA4BatchPDF(imageDatums, `${batch.batch_name}_print.pdf`);
+      const success = await generateA4BatchPDF(
+        imageDatums,
+        `${batch.batch_name}_print.pdf`,
+        { width, height } // Pass dimensions for aspect ratio calculation
+      );
 
       if (success) {
         await supabase.from('print_batches' as any).update({ status: 'completed', completed_at: new Date() }).eq('id', batch.id);
@@ -183,6 +194,38 @@ export default function PrintJobs() {
     }
   };
 
+
+  const [selectedSchool, setSelectedSchool] = useState<string>('all');
+  const [schools, setSchools] = useState<any[]>([]);
+
+  const fetchSchools = async () => {
+    // Cast to any to avoid "excessively deep" type error
+    const result = await (supabase as any).from('profiles').select('id, user_metadata, institution_name').eq('role', 'school');
+    const { data } = result;
+
+    if (data) {
+      // Fallback to metadata if institution_name column is empty (though it should be populated now)
+      const formatted = data.map((s: any) => ({
+        id: s.id,
+        name: s.institution_name || (s.user_metadata as any)?.institution_name || 'Unknown School'
+      }));
+      setSchools(formatted);
+    }
+  };
+
+  useEffect(() => {
+    fetchBatches();
+    fetchSchools();
+  }, []);
+
+
+
+  // ... fetchBatches logic ...
+
+  const filteredBatches = batches.filter(batch =>
+    selectedSchool === 'all' || batch.school_id === selectedSchool
+  );
+
   return (
     <DashboardLayout>
       <PageHeader
@@ -191,8 +234,21 @@ export default function PrintJobs() {
       />
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Incoming Print Jobs</CardTitle>
+          <div className="w-[200px]">
+            <Select value={selectedSchool} onValueChange={setSelectedSchool}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by School" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Schools</SelectItem>
+                {schools.map(s => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -211,14 +267,14 @@ export default function PrintJobs() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {batches.length === 0 ? (
+                  {filteredBatches.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         No print jobs found.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    batches.map((batch) => (
+                    filteredBatches.map((batch) => (
                       <TableRow key={batch.id}>
                         <TableCell className="font-medium">{batch.batch_name}</TableCell>
                         <TableCell>{batch.school_name}</TableCell>
@@ -233,10 +289,8 @@ export default function PrintJobs() {
                           <div className="flex items-center gap-2">
                             {/* Review Action */}
                             <Button size="sm" variant="outline" onClick={() => {
-                              // Navigate to students page filtered by this batch?
-                              // Assuming we can filter by batch via URL params or implementing it in Students.tsx later.
-                              // For now, redirect to global Students page.
-                              window.location.href = '/students';
+                              // Navigate to students page filtered by this batch
+                              window.location.href = `/students?batchId=${batch.id}`;
                             }}>
                               <Edit className="h-4 w-4 mr-1" /> Review Data
                             </Button>

@@ -51,6 +51,12 @@ export default function Dashboard() {
   const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    // Redirect School users immediately to /upload
+    if (role === 'school') {
+      navigate('/upload');
+      return;
+    }
+
     const fetchDashboardData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();

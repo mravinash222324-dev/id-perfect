@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
     title: 'Dashboard',
     icon: LayoutDashboard,
     href: '/dashboard',
-    roles: ['admin', 'teacher', 'printer', 'school'],
+    roles: ['admin', 'teacher', 'printer'],
   },
   {
     title: 'School Management',
@@ -42,31 +42,25 @@ const navItems: NavItem[] = [
     title: 'Students',
     icon: Users,
     href: '/students',
-    roles: ['teacher', 'school'], // Removed 'admin'
+    roles: ['teacher', 'school', 'admin'],
   },
   {
     title: 'Upload Data',
     icon: Upload,
     href: '/upload',
-    roles: ['teacher', 'school'], // Removed 'admin'
+    roles: ['teacher', 'school', 'admin'],
   },
   {
     title: 'Verification',
     icon: FileCheck,
     href: '/verification',
-    roles: ['teacher', 'school'], // Removed 'admin'
+    roles: ['teacher', 'school'],
   },
   {
     title: 'Design Studio',
     icon: Palette,
     href: '/design-studio',
     roles: ['admin'],
-  },
-  {
-    title: 'ID Cards',
-    icon: CreditCard,
-    href: '/id-cards',
-    roles: ['school', 'teacher'], // Removed 'admin'
   },
   {
     title: 'Print Jobs',

@@ -1,4 +1,6 @@
+
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,6 +36,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { StudentEditDialog } from '@/components/students/StudentEditDialog';
 
 interface Student {
   id: string;
@@ -46,12 +49,17 @@ interface Student {
   verification_status: string;
   photo_url: string | null;
   created_at: string;
+  school_id: string; // Ensure this is present for template fetching
 }
 
 export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [searchParams] = useSearchParams();
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -65,7 +73,7 @@ export default function Students() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setStudents(data || []);
+      setStudents((data || []) as any[]);
     } catch (error) {
       console.error('Error fetching students:', error);
       toast.error('Failed to fetch students');
@@ -75,10 +83,17 @@ export default function Students() {
   };
 
   const filteredStudents = students.filter(
-    (student) =>
-      student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.email?.toLowerCase().includes(searchQuery.toLowerCase())
+    (student) => {
+      // Batch ID filter
+      const batchQuery = searchParams.get('batchId');
+      if (batchQuery && (student as any).print_batch_id !== batchQuery) return false;
+
+      return (
+        student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        student.email?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
   );
 
   const handleDelete = async (id: string) => {
@@ -125,6 +140,11 @@ export default function Students() {
       console.error('Error uploading photo:', error);
       toast.error('Failed to upload photo');
     }
+  };
+
+  const handleEditClick = (student: Student) => {
+    setEditingStudent(student);
+    setIsEditOpen(true);
   };
 
   return (
@@ -243,9 +263,9 @@ export default function Students() {
                               <Eye className="h-4 w-4" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2">
+                            <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
                               <Edit className="h-4 w-4" />
-                              Edit
+                              Edit & Preview
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="gap-2 text-destructive focus:text-destructive"
@@ -281,6 +301,18 @@ export default function Students() {
           )}
         </CardContent>
       </Card>
+
+      {editingStudent && (
+        <StudentEditDialog
+          student={editingStudent}
+          open={isEditOpen}
+          onOpenChange={setIsEditOpen}
+          onSave={() => {
+            fetchStudents();
+            // Optionally refresh if preview image logic depends on it
+          }}
+        />
+      )}
     </DashboardLayout>
   );
 }
