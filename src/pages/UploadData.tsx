@@ -281,7 +281,7 @@ export default function UploadData() {
     if (!user) return;
 
     // Fetch minimal student data for matching
-    const { data: studentsData, error: stuError } = await supabase
+    const { data: studentsData, error: stuError } = await (supabase as any)
       .from('students')
       .select('id, roll_number, photo_ref')
       .eq('school_id', user.id);

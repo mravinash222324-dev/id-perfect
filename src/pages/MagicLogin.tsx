@@ -34,20 +34,38 @@ export default function MagicLogin() {
                 }
 
                 // 2. Hydrate the session
-                // We provide the stored access token (even if expired, it provides valid structure)
-                // If it's expired, Supabase will use the refresh token to get a new one.
-                const { error: sessionError } = await supabase.auth.setSession({
+                const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
                     refresh_token: data.refresh_token,
-                    access_token: data.access_token || data.refresh_token // Fallback if missing
+                    access_token: data.access_token || data.refresh_token
                 });
 
                 if (sessionError) throw sessionError;
+
+                // 3. IMPORTANT: Update the link with the NEW refresh token (Token Rotation)
+                if (sessionData.session) {
+                    try {
+                        const { error: updateError } = await supabase
+                            .from('dashboard_access_links' as any)
+                            .update({
+                                refresh_token: sessionData.session.refresh_token,
+                                access_token: sessionData.session.access_token,
+                                last_used_at: new Date()
+                            })
+                            .eq('id', token);
+
+                        if (updateError) {
+                            console.error("Token rotation failed (non-critical):", updateError);
+                        }
+                    } catch (updateErr) {
+                        console.error("Token rotation exception:", updateErr);
+                    }
+                }
 
                 // 3. Burn the link (Removed for Permanent Links)
                 // await supabase.from('dashboard_access_links').delete().eq('id', token);
 
                 toast.success("Welcome back! Auto-login successful.");
-                navigate('/');
+                navigate('/upload');
 
             } catch (error: any) {
                 console.error("Magic login error:", error);

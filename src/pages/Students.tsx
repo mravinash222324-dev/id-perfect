@@ -52,6 +52,8 @@ interface Student {
   school_id: string; // Ensure this is present for template fetching
 }
 
+import { BatchPhotoUploadDialog } from '@/components/students/BatchPhotoUploadDialog';
+
 export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,6 +62,7 @@ export default function Students() {
   const [searchParams] = useSearchParams();
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isBatchUploadOpen, setIsBatchUploadOpen] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -153,11 +156,26 @@ export default function Students() {
         title="Students"
         description="Manage student records and verification status"
       >
-        <Button className="gradient-primary gap-2">
-          <Plus className="h-4 w-4" />
-          Add Student
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setIsBatchUploadOpen(true)}>
+            <Upload className="h-4 w-4" />
+            Batch Photos
+          </Button>
+          <Button className="gradient-primary gap-2">
+            <Plus className="h-4 w-4" />
+            Add Student
+          </Button>
+        </div>
       </PageHeader>
+
+      <BatchPhotoUploadDialog
+        open={isBatchUploadOpen}
+        onOpenChange={setIsBatchUploadOpen}
+        onUploadComplete={() => {
+          fetchStudents(); // Refresh list to show new photos
+          setIsBatchUploadOpen(false);
+        }}
+      />
 
       <Card>
         <CardContent className="p-6">

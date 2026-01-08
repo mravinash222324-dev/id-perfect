@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { createClient } from '@supabase/supabase-js';
@@ -22,8 +21,7 @@ import {
     Search,
     School,
     MoreHorizontal,
-    Copy,
-    Check
+    Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -49,25 +47,39 @@ interface SchoolProfile {
     institution_name: string | null;
     created_at: string;
     user_id: string;
-    email?: string; // We might not get email from profiles depending on privacy, mostly relies on auth.users which is restricted.
-    // We will try to map via user_roles or just show name.
+    email?: string;
 }
 
 export default function AdminSchools() {
     const [schools, setSchools] = useState<SchoolProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [inviteLink, setInviteLink] = useState('');
-    const [copied, setCopied] = useState(false);
+
+    // Template State
+    const [allTemplates, setAllTemplates] = useState<any[]>([]);
 
     useEffect(() => {
         fetchSchools();
+        fetchTemplates();
     }, []);
+
+    const fetchTemplates = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('id_templates')
+                .select('id, name, assigned_schools')
+                .eq('status', 'active');
+
+            if (error) throw error;
+            setAllTemplates(data || []);
+        } catch (error) {
+            console.error("Error loading templates:", error);
+        }
+    }
 
     const fetchSchools = async () => {
         try {
             setLoading(true);
-            // 1. Get all users with 'school' or 'teacher' role
             const { data: roleData, error: roleError } = await supabase
                 .from('user_roles')
                 .select('user_id, role')
@@ -82,7 +94,6 @@ export default function AdminSchools() {
 
             const userIds = roleData.map(r => r.user_id);
 
-            // 2. Get profiles for these users
             const { data: profileData, error: profileError } = await supabase
                 .from('profiles')
                 .select('*')
@@ -90,8 +101,12 @@ export default function AdminSchools() {
 
             if (profileError) throw profileError;
 
-            // Map back
-            setSchools(profileData || []);
+            // Sort by Created At Desc
+            const sorted = (profileData || []).sort((a: any, b: any) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            );
+
+            setSchools(sorted);
 
         } catch (error: any) {
             console.error('Error fetching schools:', error);
@@ -103,7 +118,6 @@ export default function AdminSchools() {
 
     const [selectedSchool, setSelectedSchool] = useState<SchoolProfile | null>(null);
     const [isManageTemplatesOpen, setIsManageTemplatesOpen] = useState(false);
-    const [allTemplates, setAllTemplates] = useState<any[]>([]);
     const [schoolTemplateIds, setSchoolTemplateIds] = useState<string[]>([]);
     const [isSavingTemplates, setIsSavingTemplates] = useState(false);
 
@@ -114,6 +128,8 @@ export default function AdminSchools() {
     const [newSchoolPassword, setNewSchoolPassword] = useState('');
     const [newSchoolTemplates, setNewSchoolTemplates] = useState<string[]>([]);
     const [creationLoading, setCreationLoading] = useState(false);
+    const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+    const [createdLink, setCreatedLink] = useState('');
 
     const createSchoolAccount = async () => {
         if (!newSchoolName || !newSchoolEmail || !newSchoolPassword) {
@@ -123,28 +139,27 @@ export default function AdminSchools() {
 
         setCreationLoading(true);
         try {
-            // 1. Create a SECONDARY client to avoid messing with Admin session
-            // We use the same URL and Key, but this client will sign in as the NEW user
+            // 1. Create a SECONDARY client
             const tempClient = createClient(
                 import.meta.env.VITE_SUPABASE_URL,
                 import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
                 {
                     auth: {
-                        persistSession: false, // Don't overwrite local storage
+                        persistSession: false,
                         autoRefreshToken: false,
                         detectSessionInUrl: false
                     }
                 }
             );
 
-            // 2. Sign Up the new user
+            // 2. Sign Up (Pass role in metadata for the new trigger to pick up)
             const { data: authData, error: authError } = await tempClient.auth.signUp({
                 email: newSchoolEmail,
                 password: newSchoolPassword,
                 options: {
                     data: {
                         full_name: newSchoolName,
-                        role: 'school',
+                        role: 'school', // IMPORTANT: New trigger uses this
                         institution_name: newSchoolName
                     }
                 }
@@ -155,29 +170,33 @@ export default function AdminSchools() {
 
             const userId = authData.user.id;
 
-            // 3. Manually create Profile & Role (Using ADMIN client)
-            // Because triggers are disabled/unreliable per previous fixes
+            // 3. Fallback: Manually ensure Profile & Role exist (if trigger failed or old trigger ran)
+            // We use upsert safely.
             const { error: profileError } = await supabase
                 .from('profiles')
-                .insert([{
-                    id: userId,
+                .upsert({
+                    user_id: userId,
                     full_name: newSchoolName,
-                    role: 'school',
                     institution_name: newSchoolName
-                }] as any);
+                } as any, { onConflict: 'user_id' });
 
             if (profileError) {
-                console.error("Profile creation error:", profileError);
-                // Continue anyway, might have been created by trigger if re-enabled
+                console.warn("Profile upsert warning:", profileError);
             }
 
+            // Ensure 'school' role
             const { error: roleError } = await supabase
                 .from('user_roles')
                 .insert([{ user_id: userId, role: 'school' } as any]);
+            // If it fails due to PK conflict, it means role exists. 
+            // Ideally we check or delete 'teacher', but let's assume 'school' is key.
 
-            if (roleError) console.error("Role creation error:", roleError);
+            if (roleError) {
+                // Check if it was unique constraint
+                console.warn("Role insert warning (expected if trigger worked):", roleError);
+            }
 
-            // 4. Assign Templates (Using ADMIN client)
+            // 4. Assign Templates
             if (newSchoolTemplates.length > 0) {
                 const updates = allTemplates
                     .filter(t => newSchoolTemplates.includes(t.id))
@@ -194,9 +213,8 @@ export default function AdminSchools() {
             }
 
             // 5. Generate Magic Access Link
-            // We need the refresh token from the NEW session
             const refreshToken = authData.session?.refresh_token;
-            if (!refreshToken) throw new Error("Could not retrieve session info");
+            if (!refreshToken) throw new Error("Could not retrieve session info for magic link");
 
             const accessToken = authData.session?.access_token;
 
@@ -214,26 +232,18 @@ export default function AdminSchools() {
 
             // 6. Success
             const magicLink = `${window.location.origin}/magic-login?token=${linkData.id}`;
-            setInviteLink(magicLink);
-            setCopied(false);
-            setIsCreateOpen(false); // Close create modal
-
-            // Show invite modal (reuse existing one or create new?) 
-            // We'll reuse the existing invite link dialog state 'setInviteLink' sends it there, 
-            // but we need to trigger the dialog open. 
-            // Ideally we should have separate state, but for now we can just display it.
-            // Let's open a specific "Success" dialog. For now, pop toast and show in our Invite Dialog?
-            // Actually, let's just use the toast for now or reuse the dialog trigger programmatically?
-            // A simple "Create Success" dialog is better.
-
-            // Re-using the InviteLink state mechanism:
-            // The existing dialog is triggered by `DialogTrigger`. We can't easily open it programmatically without refactoring.
-            // I'll add a separate "Success" dialog state.
             setCreatedLink(magicLink);
             setIsSuccessOpen(true);
+            setIsCreateOpen(false);
 
             toast.success("School account created & templates assigned!");
-            fetchSchools(); // Refresh list
+            fetchSchools();
+
+            // Reset Form but keep templates if needed? No, reset all.
+            setNewSchoolName('');
+            setNewSchoolEmail('');
+            setNewSchoolPassword('');
+            setNewSchoolTemplates([]);
 
         } catch (error: any) {
             console.error("Creation error:", error);
@@ -242,9 +252,6 @@ export default function AdminSchools() {
             setCreationLoading(false);
         }
     };
-
-    const [isSuccessOpen, setIsSuccessOpen] = useState(false);
-    const [createdLink, setCreatedLink] = useState('');
 
     // View Link Logic
     const [retrievedLink, setRetrievedLink] = useState('');
@@ -255,11 +262,10 @@ export default function AdminSchools() {
         setViewLinkLoading(true);
         setRetrievedLink('');
         try {
-            // Fetch the LATEST valid link for this user
             const { data, error } = await supabase
                 .from('dashboard_access_links' as any)
                 .select('id')
-                .eq('user_id', school.user_id || school.id) // Fallback to id if user_id missing in profile type
+                .eq('user_id', school.user_id || school.id)
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .maybeSingle() as any;
@@ -283,68 +289,19 @@ export default function AdminSchools() {
         }
     };
 
-    const generateInviteLink = async () => {
-        try {
-            setLoading(true);
-
-            // 1. Create invite in DB
-            const { data, error } = await (supabase
-                .from('school_invites' as any)
-                .insert([{ created_by: (await supabase.auth.getUser()).data.user?.id }])
-                .select('token')
-                .single()) as any;
-
-            if (error) throw error;
-
-            // 2. Format Link
-            const link = `${window.location.origin}/auth?role=school&token=${data.token}`;
-            setInviteLink(link);
-            setCopied(false);
-            toast.success("New secure invite link generated");
-        } catch (error: any) {
-            console.error("Error generating invite:", error);
-            toast.error("Failed to generate invite link");
-        } finally {
-            setLoading(false);
-        }
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        toast.success('Link copied to clipboard');
     };
 
-    const copyToClipboard = () => {
-        navigator.clipboard.writeText(inviteLink);
-        setCopied(true);
-        toast.success('Invite link copied to clipboard');
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const openManageTemplates = async (school: SchoolProfile) => {
+    const openManageTemplates = (school: SchoolProfile) => {
         setSelectedSchool(school);
         setIsManageTemplatesOpen(true);
-        setLoading(true);
-
-        try {
-            // 1. Fetch ALL active templates
-            const { data: templatesData, error: templatesError } = await supabase
-                .from('id_templates')
-                .select('id, name, assigned_schools')
-                .eq('status', 'active');
-
-            if (templatesError) throw templatesError;
-            setAllTemplates(templatesData || []);
-
-            // 2. Determine which templates are assigned to THIS school
-            // Logic: Template is assigned if school.user_id is in assigned_schools array
-            const assigned = (templatesData || [])
-                .filter((t: any) => t.assigned_schools && t.assigned_schools.includes(school.user_id))
-                .map((t: any) => t.id);
-
-            setSchoolTemplateIds(assigned);
-
-        } catch (error: any) {
-            console.error("Error loading templates:", error);
-            toast.error("Failed to load templates");
-        } finally {
-            setLoading(false);
-        }
+        // Determine assigned from allTemplates
+        const assigned = allTemplates
+            .filter((t: any) => t.assigned_schools && t.assigned_schools.includes(school.user_id))
+            .map((t: any) => t.id);
+        setSchoolTemplateIds(assigned);
     };
 
     const toggleTemplateAssignment = (templateId: string) => {
@@ -360,16 +317,11 @@ export default function AdminSchools() {
         setIsSavingTemplates(true);
 
         try {
-            // We need to update EACH template. 
-            // This is inefficient if we update ALL templates, so we should only update changed ones?
-            // For simplicity in this Admin UI, we iterate through all templates and update their arrays.
-            // Better approach: Calculate diffs.
-
             const updates = allTemplates.map(async (template) => {
                 const isCurrentlyAssigned = template.assigned_schools?.includes(selectedSchool.user_id);
                 const shouldBeAssigned = schoolTemplateIds.includes(template.id);
 
-                if (isCurrentlyAssigned === shouldBeAssigned) return; // No change
+                if (isCurrentlyAssigned === shouldBeAssigned) return;
 
                 let newAssignments = template.assigned_schools || [];
                 if (shouldBeAssigned) {
@@ -378,7 +330,6 @@ export default function AdminSchools() {
                     newAssignments = newAssignments.filter((uid: string) => uid !== selectedSchool.user_id);
                 }
 
-                // Update DB
                 const { error } = await supabase
                     .from('id_templates')
                     .update({ assigned_schools: newAssignments } as any)
@@ -390,6 +341,9 @@ export default function AdminSchools() {
             await Promise.all(updates);
             toast.success("Template assignments updated successfully");
             setIsManageTemplatesOpen(false);
+
+            // Refresh templates to sync local state
+            fetchTemplates();
 
         } catch (error: any) {
             console.error("Error saving assignments:", error);
@@ -410,30 +364,6 @@ export default function AdminSchools() {
                 title="School Management"
                 description="Manage connected schools and generate access links."
             >
-                <Dialog>
-                    <DialogTrigger asChild>
-                        <Button className="gap-2 gradient-primary" onClick={generateInviteLink}>
-                            <Plus className="h-4 w-4" />
-                            Generate Invite Link
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>School Access Link</DialogTitle>
-                            <DialogDescription>
-                                Share this link with school administrators. They can use it to create a school account.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="flex items-center gap-2 mt-4">
-                            <Input value={inviteLink} readOnly />
-                            <Button size="icon" variant="outline" onClick={copyToClipboard}>
-                                {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                            </Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Create Account Dialog */}
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                     <DialogTrigger asChild>
                         <Button className="gap-2" variant="outline">
@@ -480,7 +410,7 @@ export default function AdminSchools() {
                                             <label htmlFor={`new-tpl-${t.id}`} className="text-sm cursor-pointer text-gray-700">{t.name}</label>
                                         </div>
                                     ))}
-                                    {allTemplates.length === 0 && <p className="text-xs text-muted-foreground">No templates available.</p>}
+                                    {allTemplates.length === 0 && <p className="text-xs text-muted-foreground">No templates available. Create one in Design Studio first.</p>}
                                 </div>
                             </div>
 
@@ -498,16 +428,12 @@ export default function AdminSchools() {
                         <DialogHeader>
                             <DialogTitle>Account Created!</DialogTitle>
                             <DialogDescription>
-                                The account for <strong>{newSchoolName}</strong> is ready.
-                                Share this "Magic Link" with the client. It will log them in immediately.
+                                The account is ready. Share this link with the client.
                             </DialogDescription>
                         </DialogHeader>
                         <div className="flex items-center gap-2 mt-4">
                             <Input value={createdLink} readOnly />
-                            <Button size="icon" variant="outline" onClick={() => {
-                                navigator.clipboard.writeText(createdLink);
-                                toast.success("Magic link copied!");
-                            }}>
+                            <Button size="icon" variant="outline" onClick={() => copyToClipboard(createdLink)}>
                                 <Copy className="h-4 w-4" />
                             </Button>
                         </div>
@@ -528,10 +454,7 @@ export default function AdminSchools() {
                         </DialogHeader>
                         <div className="flex items-center gap-2 mt-4">
                             <Input value={retrievedLink} readOnly />
-                            <Button size="icon" variant="outline" onClick={() => {
-                                navigator.clipboard.writeText(retrievedLink);
-                                toast.success("Link copied!");
-                            }}>
+                            <Button size="icon" variant="outline" onClick={() => copyToClipboard(retrievedLink)}>
                                 <Copy className="h-4 w-4" />
                             </Button>
                         </div>
@@ -608,7 +531,7 @@ export default function AdminSchools() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {loading && !isManageTemplatesOpen ? (
+                                {loading ? (
                                     <TableRow>
                                         <TableCell colSpan={4} className="h-24 text-center">
                                             <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
@@ -617,7 +540,7 @@ export default function AdminSchools() {
                                 ) : filteredSchools.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                                            No schools found. Generate a link to invite one.
+                                            No schools found. Create an account to get started.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -645,18 +568,11 @@ export default function AdminSchools() {
                                                         <DropdownMenuItem onClick={() => openManageTemplates(school)}>
                                                             Manage Designs
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => toast.info("View details coming soon")}>
-                                                            View Details
-                                                        </DropdownMenuItem>
                                                         <DropdownMenuItem onClick={() => viewSchoolLink(school)}>
                                                             <div className="flex items-center gap-2 w-full">
                                                                 <Copy className="h-4 w-4" />
                                                                 View Access Link
                                                             </div>
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem className="text-destructive">
-                                                            Remove Access
                                                         </DropdownMenuItem>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>

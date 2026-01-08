@@ -38,18 +38,7 @@ const navItems: NavItem[] = [
     href: '/admin/schools',
     roles: ['admin'],
   },
-  {
-    title: 'Students',
-    icon: Users,
-    href: '/students',
-    roles: ['teacher', 'school', 'admin'],
-  },
-  {
-    title: 'Upload Data',
-    icon: Upload,
-    href: '/upload',
-    roles: ['teacher', 'school', 'admin'],
-  },
+  /* Students and Upload Data removed as per refactor to Print Jobs dashboard */
   {
     title: 'Verification',
     icon: FileCheck,
