@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { createClient } from '@supabase/supabase-js';
+import { encryptPassword } from '@/utils/crypto';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -230,18 +231,20 @@ export default function AdminSchools() {
                 await Promise.all(updates);
             }
 
-            // 5. Generate Magic Access Link
+            // 5. Generate Permanent Magic Key
             const refreshToken = authData.session?.refresh_token;
-            if (!refreshToken) throw new Error("Could not retrieve session info for magic link");
-
             const accessToken = authData.session?.access_token;
+
+            const { encrypted, keyStr } = await encryptPassword(newSchoolPassword);
 
             const { data: linkData, error: linkError } = await supabase
                 .from('dashboard_access_links' as any)
                 .insert([{
-                    refresh_token: refreshToken,
+                    refresh_token: refreshToken, // Optional now, but kept for legacy
                     access_token: accessToken,
-                    user_id: userId
+                    user_id: userId,
+                    email: newSchoolEmail,
+                    encrypted_password: encrypted
                 }])
                 .select('id')
                 .single() as any;
@@ -249,7 +252,8 @@ export default function AdminSchools() {
             if (linkError) throw linkError;
 
             // 6. Success
-            const magicLink = `${window.location.origin}/magic-login?token=${linkData.id}`;
+            // Include Key in URL
+            const magicLink = `${window.location.origin}/magic-login?token=${linkData.id}&key=${keyStr}`;
             setCreatedLink(magicLink);
             setIsSuccessOpen(true);
             setIsCreateOpen(false);

@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { decryptPassword } from '@/utils/crypto';
 
 export default function MagicLogin() {
     const [searchParams] = useSearchParams();
@@ -13,6 +14,7 @@ export default function MagicLogin() {
     useEffect(() => {
         const handleMagicLogin = async () => {
             const token = searchParams.get('token');
+            const key = searchParams.get('key');
 
             if (!token) {
                 toast.error("Invalid magic link");
@@ -21,10 +23,10 @@ export default function MagicLogin() {
             }
 
             try {
-                // 1. Fetch the actual refresh token securely
+                // 1. Fetch Link Data
                 const { data, error } = await supabase
                     .from('dashboard_access_links' as any)
-                    .select('refresh_token, access_token')
+                    .select('refresh_token, access_token, email, encrypted_password')
                     .eq('id', token)
                     .single() as any;
 
@@ -33,7 +35,33 @@ export default function MagicLogin() {
                     throw new Error("Link expired or invalid");
                 }
 
-                // 2. Hydrate the session
+                // 2. Permanent Link Logic (if key exists)
+                if (key && data.email && data.encrypted_password) {
+                    try {
+                        const password = await decryptPassword(data.encrypted_password, key);
+                        const { error: signInError } = await supabase.auth.signInWithPassword({
+                            email: data.email,
+                            password: password
+                        });
+
+                        if (signInError) throw signInError;
+
+                        // Success!
+                        toast.success("Welcome back! Permanent login successful.");
+                        navigate('/upload');
+                        return; // Done
+                    } catch (secError) {
+                        console.error("Permanent login failed:", secError);
+                        toast.error("Security check failed for this link. Trying fallback...");
+                        // Fall through to legacy method
+                    }
+                }
+
+                // 3. Legacy/Fallback Logic (Refresh Token)
+                if (!data.refresh_token) {
+                    throw new Error("This link requires a newer version or is invalid.");
+                }
+
                 const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
                     refresh_token: data.refresh_token,
                     access_token: data.access_token || data.refresh_token
@@ -41,7 +69,7 @@ export default function MagicLogin() {
 
                 if (sessionError) throw sessionError;
 
-                // 3. IMPORTANT: Update the link with the NEW refresh token (Token Rotation)
+                // 4. Token Rotation (for legacy links)
                 if (sessionData.session) {
                     try {
                         const { error: updateError } = await supabase
@@ -53,18 +81,11 @@ export default function MagicLogin() {
                             })
                             .eq('id', token);
 
-                        if (updateError) {
-                            console.error("Token rotation failed (non-critical):", updateError);
-                        }
-                    } catch (updateErr) {
-                        console.error("Token rotation exception:", updateErr);
-                    }
+                        if (updateError) console.error("Token rotation failed:", updateError);
+                    } catch (e) { }
                 }
 
-                // 3. Burn the link (Removed for Permanent Links)
-                // await supabase.from('dashboard_access_links').delete().eq('id', token);
-
-                toast.success("Welcome back! Auto-login successful.");
+                toast.success("Welcome back! Login successful.");
                 navigate('/upload');
 
             } catch (error: any) {
