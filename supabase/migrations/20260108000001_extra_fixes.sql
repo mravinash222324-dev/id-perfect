@@ -1,18 +1,29 @@
 -- 1. Add RLS policies for Admins on profiles
+DROP POLICY IF EXISTS "Admins can insert profiles" ON public.profiles;
 CREATE POLICY "Admins can insert profiles"
 ON public.profiles FOR INSERT
 TO authenticated
 WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
 
+DROP POLICY IF EXISTS "Admins can update all profiles" ON public.profiles;
 CREATE POLICY "Admins can update all profiles"
 ON public.profiles FOR UPDATE
 TO authenticated
 USING (public.has_role(auth.uid(), 'admin'::public.app_role));
 
+DROP POLICY IF EXISTS "Admins can delete profiles" ON public.profiles;
 CREATE POLICY "Admins can delete profiles"
 ON public.profiles FOR DELETE
 TO authenticated
 USING (public.has_role(auth.uid(), 'admin'::public.app_role));
+
+-- 1.1 FIX SELECT POLICY (This is why you see "No Profile")
+-- 1.1 FIX SELECT POLICY (Debugging: Allow ALL authenticated users)
+DROP POLICY IF EXISTS "Admins can view all profiles" ON public.profiles;
+CREATE POLICY "Authenticated users can view all profiles"
+ON public.profiles FOR SELECT
+TO authenticated
+USING (true);
 
 -- 2. Refine dashboard_access_links policies
 DROP POLICY IF EXISTS "Allow public select by ID" ON public.dashboard_access_links;
@@ -21,7 +32,7 @@ ON public.dashboard_access_links FOR SELECT
 TO public
 USING (true);
 
-DROP POLICY IF EXISTS "Allow update by ID" ON public.dashboard_access_links;
+DROP POLICY IF EXISTS "Allow public update by ID" ON public.dashboard_access_links;
 CREATE POLICY "Allow public update by ID"
 ON public.dashboard_access_links FOR UPDATE
 TO public
@@ -75,6 +86,8 @@ $$;
 -- but we named them clearly in previous migration.
 
 DROP POLICY IF EXISTS "Admins and teachers can insert students" ON public.students;
+DROP POLICY IF EXISTS "Admins, teachers, and schools can insert students" ON public.students;
+
 CREATE POLICY "Admins, teachers, and schools can insert students"
 ON public.students FOR INSERT
 TO authenticated
@@ -85,6 +98,8 @@ WITH CHECK (
 );
 
 DROP POLICY IF EXISTS "Admins and teachers can update students" ON public.students;
+DROP POLICY IF EXISTS "Admins, teachers, and schools can update students" ON public.students;
+
 CREATE POLICY "Admins, teachers, and schools can update students"
 ON public.students FOR UPDATE
 TO authenticated
@@ -95,9 +110,32 @@ USING (
 );
 
 -- Ensure schools can view their own students (if we want to restrict visibility later, we can, but for now 'Authenticated users can view students' is broad).
--- The existing policy "Authenticated users can view students" is: USING (true). This is fine for now.
+DROP POLICY IF EXISTS "Authenticated users can view students" ON public.students;
+CREATE POLICY "Authenticated users can view students"
+ON public.students FOR SELECT
+TO authenticated
+USING (true);
 
 -- 5. Grant usage on storage for schools if not covered
 -- Existing policies use bucket_id checks. 
 -- "Authenticated users can upload student photos" -> WITH CHECK (bucket_id = 'student-photos').
 -- This covers schools.
+
+-- 6. Fix Missing Constraints (HOTFIX)
+-- This is critical for the ON CONFLICT clauses in triggers to work.
+DO $$ 
+BEGIN
+    -- 1. Deduplicate profiles (keep latest)
+    WITH duplicates AS (
+      SELECT id,
+             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
+      FROM public.profiles
+    )
+    DELETE FROM public.profiles
+    WHERE id IN (SELECT id FROM duplicates WHERE rn > 1);
+
+    -- 2. Add Constraint if not exists
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_user_id_key') THEN
+        ALTER TABLE public.profiles ADD CONSTRAINT profiles_user_id_key UNIQUE (user_id);
+    END IF;
+END $$;

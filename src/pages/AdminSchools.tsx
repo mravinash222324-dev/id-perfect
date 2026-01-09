@@ -92,17 +92,34 @@ export default function AdminSchools() {
                 return;
             }
 
-            const userIds = roleData.map(r => r.user_id);
+            // Deduplicate user IDs (users might have multiple roles)
+            const uniqueUserIds = [...new Set(roleData.map(r => r.user_id))];
 
             const { data: profileData, error: profileError } = await supabase
                 .from('profiles')
                 .select('*')
-                .in('user_id', userIds);
+                .in('user_id', uniqueUserIds);
 
             if (profileError) throw profileError;
 
+            // Combine and handle missing profiles
+            const combinedSchools = uniqueUserIds.map(uid => {
+                const profile = profileData?.find(p => p.user_id === uid);
+                if (profile) return profile;
+
+                // Fallback for missing profile (likely due to RLS/Trigger issues)
+                return {
+                    id: uid,
+                    user_id: uid,
+                    full_name: '(No Profile - Run SQL Migration)',
+                    institution_name: 'Unknown',
+                    created_at: new Date().toISOString(),
+                    email: 'check-db'
+                };
+            });
+
             // Sort by Created At Desc
-            const sorted = (profileData || []).sort((a: any, b: any) =>
+            const sorted = combinedSchools.sort((a: any, b: any) =>
                 new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             );
 
@@ -182,6 +199,7 @@ export default function AdminSchools() {
 
             if (profileError) {
                 console.warn("Profile upsert warning:", profileError);
+                toast.error("Profile creation failed: " + profileError.message);
             }
 
             // Ensure 'school' role
