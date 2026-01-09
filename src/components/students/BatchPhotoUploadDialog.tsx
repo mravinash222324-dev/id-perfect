@@ -16,9 +16,10 @@ interface BatchPhotoUploadDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onUploadComplete?: () => void;
+    batchId?: string | null;
 }
 
-export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete }: BatchPhotoUploadDialogProps) {
+export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete, batchId }: BatchPhotoUploadDialogProps) {
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
     const [photoUploadProgress, setPhotoUploadProgress] = useState<{ processed: number, total: number, success: number, failed: number } | null>(null);
 
@@ -38,10 +39,15 @@ export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete }:
             if (!user) return;
 
             // Fetch minimal student data for matching
-            // Note: This relies on RLS to return the correct students (all for admin, school-specific for school)
-            const { data: studentsData, error: stuError } = await supabase
+            let query = supabase
                 .from('students')
                 .select('id, roll_number, photo_ref');
+
+            if (batchId) {
+                query = query.eq('print_batch_id', batchId);
+            }
+
+            const { data: studentsData, error: stuError } = await query;
 
             if (stuError || !studentsData) {
                 toast.error("No students found to match photos against.");

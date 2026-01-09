@@ -47,30 +47,21 @@ export default function PrintJobs() {
     const [batches, setBatches] = useState<PrintBatch[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedSchool, setSelectedSchool] = useState<string>('all');
-    const [schools, setSchools] = useState<any[]>([]);
-
-    // Component State
-    const [isBatchUploadOpen, setIsBatchUploadOpen] = useState(false);
+    const [uploadBatchId, setUploadBatchId] = useState<string | null>(null);
     const [reviewBatchId, setReviewBatchId] = useState<string | null>(null);
+
+    // Derive unique schools from the loaded batches
+    const schools = batches.reduce((acc: any[], batch) => {
+        if (batch.school_id && !acc.find(s => s.id === batch.school_id)) {
+            acc.push({ id: batch.school_id, name: batch.school_name || 'Unknown' });
+        }
+        return acc;
+    }, []);
 
     useEffect(() => {
         fetchBatches();
-        fetchSchools();
+        // fetchSchools removed as we derive from batches now
     }, []);
-
-    const fetchSchools = async () => {
-        // Cast to any to avoid "excessively deep" type error
-        const result = await (supabase as any).from('profiles').select('id, user_metadata, institution_name').eq('role', 'school');
-        const { data } = result;
-
-        if (data) {
-            const formatted = data.map((s: any) => ({
-                id: s.id,
-                name: s.institution_name || (s.user_metadata as any)?.institution_name || 'Unknown School'
-            }));
-            setSchools(formatted);
-        }
-    };
 
     const fetchBatches = async () => {
         try {
@@ -97,7 +88,7 @@ export default function PrintJobs() {
                     const { data: profile } = await supabase
                         .from('profiles')
                         .select('institution_name, full_name')
-                        .eq('id', batch.school_id)
+                        .eq('user_id', batch.school_id)
                         .single();
                     if (profile) schoolName = profile.institution_name || profile.full_name || 'Unknown School';
                 }
@@ -119,15 +110,6 @@ export default function PrintJobs() {
     };
 
     const handlePrintParams = async (batch: PrintBatch) => {
-        // ... (keeping existing print logic logic - omitting for brevity in diff but logic remains same if I don't touch it)
-        // Wait, I am replacing the whole file content effectively if I use replace_file_content heavily. 
-        // I should probably use multi_replace to be safe or just carefully reconstruct.
-        // Actually, this tool 'replace_file_content' is for SINGLE CONTIGUOUS block.
-        // I will try to target the whole file updates efficiently.
-        // Since I'm changing imports, component structure, and JSX, it's easier to replace large chunks.
-        // I will assume handlePrintParams logic is unchanged and just reference it here.
-        // Oops, I can't "omit" it in valid code. I need to include it.
-
         try {
             const { data: students, error } = await supabase
                 .from('students' as any)
@@ -141,6 +123,7 @@ export default function PrintJobs() {
 
             toast.info("Preparing print files... (This may take a moment)");
             await supabase.from('print_batches' as any).update({ status: 'processing' }).eq('id', batch.id);
+            // Optimistic update or refetch
             fetchBatches();
 
             let templateData: any = null;
@@ -204,18 +187,16 @@ export default function PrintJobs() {
                 title="Print Shop Dashboard"
                 description="Manage submitted batches and generate print files"
             >
-                <Button variant="outline" className="gap-2" onClick={() => setIsBatchUploadOpen(true)}>
-                    <Upload className="h-4 w-4" />
-                    Batch Photos
-                </Button>
+                {/* Global button removed as requested */}
             </PageHeader>
 
             <BatchPhotoUploadDialog
-                open={isBatchUploadOpen}
-                onOpenChange={setIsBatchUploadOpen}
+                open={!!uploadBatchId}
+                onOpenChange={(open) => !open && setUploadBatchId(null)}
+                batchId={uploadBatchId}
                 onUploadComplete={() => {
-                    // Optional: refresh something if needed, but photos are general
                     toast.success("Photos uploaded. You can now review data and see matches.");
+                    setUploadBatchId(null);
                 }}
             />
 
@@ -238,7 +219,7 @@ export default function PrintJobs() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Schools</SelectItem>
-                                {schools.map(s => (
+                                {schools.map((s: any) => (
                                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -285,13 +266,21 @@ export default function PrintJobs() {
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
+                                                            onClick={() => setUploadBatchId(batch.id)}
+                                                        >
+                                                            <Upload className="h-4 w-4 mr-1" /> Photos
+                                                        </Button>
+
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
                                                             onClick={() => setReviewBatchId(batch.id)}
                                                         >
-                                                            <Edit className="h-4 w-4 mr-1" /> Review Data
+                                                            <Edit className="h-4 w-4 mr-1" /> Review
                                                         </Button>
 
                                                         <Button size="sm" className="gradient-primary" onClick={() => handlePrintParams(batch)}>
-                                                            <Printer className="h-4 w-4 mr-1" /> Print (A4)
+                                                            <Printer className="h-4 w-4 mr-1" /> Print
                                                         </Button>
                                                     </div>
                                                 </TableCell>
