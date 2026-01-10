@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 import { CreditCard as CardIcon } from 'lucide-react'; // Rename to avoid conflict if Card is imported for UI
+import { extractTemplateFields } from '@/utils/templateHelper';
 
 interface UploadResult {
   success: number;
@@ -408,18 +409,81 @@ export default function UploadData() {
     }
   }
 
-  const downloadTemplate = () => {
-    const headers = 'roll_number,name,email,phone,dob,blood_group,class,department,guardian_name,address,photo_ref';
-    const sampleRow = 'STU001,John Doe,john@example.com,+1234567890,2000-01-15,A+,10th,Science,Jane Doe,123 Main St,img_123.jpg';
-    const csv = `${headers}\n${sampleRow}`;
+  const downloadTemplate = async () => {
+    // 1. Defaut Base Headers
+    const mandatoryFields = ['roll_number', 'name'];
+    let dynamicFields = new Set<string>();
+
+    // 2. Try to fetch assigned template to get specific fields
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: tmpls } = await supabase
+          .from('id_templates')
+          .select('*')
+          .contains('assigned_schools', [user.id])
+          .limit(1); // Assuming one main template for now
+
+        if (tmpls && tmpls.length > 0) {
+          const template = tmpls[0];
+          const frontFields = extractTemplateFields((template as any).front_design);
+          const backFields = extractTemplateFields((template as any).back_design);
+
+          // Merge fields
+          frontFields.forEach(f => dynamicFields.add(f));
+          backFields.forEach(f => dynamicFields.add(f));
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching template for CSV generation:", e);
+    }
+
+    // 3. Construct Final Header List
+    // Always start with mandatory
+    const headersList = [...mandatoryFields];
+
+    // Add dynamic fields (excluding mandatory ones if they were detected)
+    dynamicFields.forEach(f => {
+      if (!mandatoryFields.includes(f)) {
+        headersList.push(f);
+      }
+    });
+
+    // Add standard optional fields if they are NOT in dynamic (to be safe? or strict?)
+    // Requirement says: "if design having only name class phone photo then... must have ONLY that column"
+    // So we should be STRICT if dynamic fields were found.
+    // However, if NO dynamic fields found (e.g. blank design or fail), fallback to comprehensive default?
+
+    if (dynamicFields.size === 0) {
+      // Fallback to default comprehensive list
+      ['email', 'phone', 'dob', 'blood_group', 'class', 'department', 'guardian_name', 'address', 'photo_ref'].forEach(f => {
+        if (!headersList.includes(f)) headersList.push(f);
+      });
+    }
+
+    // 4. Generate Sample Row
+    const sampleRow = headersList.map(h => {
+      if (h === 'roll_number') return 'STU001';
+      if (h === 'name') return 'John Doe';
+      if (h === 'email') return 'john@example.com';
+      if (h === 'phone') return '9876543210';
+      if (h === 'dob') return '2000-01-01';
+      if (h === 'photo_ref') return 'img_001.jpg';
+      return `Sample ${h}`; // Generic fallback
+    }).join(',');
+
+    const csvHeaderIdx = headersList.join(',');
+    const csv = `${csvHeaderIdx}\n${sampleRow}`;
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'student_template.csv';
+    a.download = 'school_student_template.csv';
     a.click();
     URL.revokeObjectURL(url);
+
+    toast.success("Template downloaded based on your assigned ID design.");
   };
 
   return (
