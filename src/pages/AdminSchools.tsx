@@ -261,8 +261,9 @@ export default function AdminSchools() {
 
             if (keyError) {
                 console.error("Failed to store retrieval key:", keyError);
-                // Non-fatal, but warns admin
-                toast.warning("Link created, but it cannot be retrieved later from the dashboard. Please copy it now.");
+                toast.error(`DB Error: ${keyError.message || keyError.details || "Key storage failed"}. Did you run the migration?`);
+            } else {
+                console.log("Key stored successfully for link:", linkData.id);
             }
 
             // 6. Success
@@ -320,6 +321,13 @@ export default function AdminSchools() {
                 .select('encryption_key')
                 .eq('link_id', linkData.id)
                 .maybeSingle() as any;
+
+            if (keyError) {
+                console.error("Key fetch error:", keyError);
+                toast.error(`Key fetch failed: ${keyError.message}`);
+            }
+
+            console.log("Key Data Retrieved:", keyData);
 
             let magicLink = '';
             if (keyData && keyData.encryption_key) {
