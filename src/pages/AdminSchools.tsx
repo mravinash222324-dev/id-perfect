@@ -319,7 +319,7 @@ export default function AdminSchools() {
                 .from('dashboard_access_keys' as any)
                 .select('encryption_key')
                 .eq('link_id', linkData.id)
-                .maybeSingle();
+                .maybeSingle() as any;
 
             let magicLink = '';
             if (keyData && keyData.encryption_key) {
