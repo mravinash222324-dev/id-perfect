@@ -251,6 +251,20 @@ export default function AdminSchools() {
 
             if (linkError) throw linkError;
 
+            // 5b. Securely store the key for Admin retrieval
+            const { error: keyError } = await supabase
+                .from('dashboard_access_keys' as any)
+                .insert([{
+                    link_id: linkData.id,
+                    encryption_key: keyStr
+                }]);
+
+            if (keyError) {
+                console.error("Failed to store retrieval key:", keyError);
+                // Non-fatal, but warns admin
+                toast.warning("Link created, but it cannot be retrieved later from the dashboard. Please copy it now.");
+            }
+
             // 6. Success
             // Include Key in URL
             const magicLink = `${window.location.origin}/magic-login?token=${linkData.id}&key=${keyStr}`;
@@ -284,7 +298,8 @@ export default function AdminSchools() {
         setViewLinkLoading(true);
         setRetrievedLink('');
         try {
-            const { data, error } = await supabase
+            // 1. Get the latest link
+            const { data: linkData, error } = await supabase
                 .from('dashboard_access_links' as any)
                 .select('id')
                 .eq('user_id', school.user_id || school.id)
@@ -294,13 +309,29 @@ export default function AdminSchools() {
 
             if (error) throw error;
 
-            if (!data) {
+            if (!linkData) {
                 toast.error("No active magic link found for this school");
                 return;
             }
 
-            const link = `${window.location.origin}/magic-login?token=${data.id}`;
-            setRetrievedLink(link);
+            // 2. Try to fetch the key
+            const { data: keyData, error: keyError } = await supabase
+                .from('dashboard_access_keys' as any)
+                .select('encryption_key')
+                .eq('link_id', linkData.id)
+                .maybeSingle();
+
+            let magicLink = '';
+            if (keyData && keyData.encryption_key) {
+                // Permanent Link
+                magicLink = `${window.location.origin}/magic-login?token=${linkData.id}&key=${keyData.encryption_key}`;
+            } else {
+                // Legacy Link (no key stored)
+                magicLink = `${window.location.origin}/magic-login?token=${linkData.id}`;
+                if (!keyError) toast.info("This is a legacy link (or key missing). It might be expired.");
+            }
+
+            setRetrievedLink(magicLink);
             setIsViewLinkOpen(true);
 
         } catch (error: any) {
