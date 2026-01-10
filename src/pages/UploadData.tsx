@@ -411,7 +411,7 @@ export default function UploadData() {
 
   const downloadTemplate = async () => {
     // 1. Defaut Base Headers
-    const mandatoryFields = ['roll_number', 'name'];
+    const mandatoryFields = ['roll_number', 'name', 'photo_ref'];
     let dynamicFields = new Set<string>();
 
     // 2. Try to fetch assigned template to get specific fields
