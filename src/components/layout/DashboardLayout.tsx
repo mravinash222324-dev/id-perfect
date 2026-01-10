@@ -9,7 +9,7 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, loading } = useAuth();
+  const { user, loading, role } = useAuth();
 
   if (loading) {
     return (
@@ -26,9 +26,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return <Navigate to="/auth" replace />;
   }
 
+  // Hide sidebar for school users as they have a single-page interface
+  const showSidebar = role !== 'school';
+
   return (
     <div className="flex min-h-screen w-full bg-background">
-      <AppSidebar />
+      {showSidebar && <AppSidebar />}
       <main className="flex-1 overflow-auto">
         <div className="container mx-auto p-6 lg:p-8">
           {children}

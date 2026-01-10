@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,7 +18,9 @@ import {
   Loader2,
   X,
   Trash2,
-  Database
+  Database,
+  LogOut,
+  FileCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -31,6 +35,8 @@ interface UploadResult {
 }
 
 export default function UploadData() {
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [batchName, setBatchName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -44,6 +50,11 @@ export default function UploadData() {
     fetchBatches();
     fetchAssignedTemplate();
   }, []);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
 
   const fetchAssignedTemplate = async () => {
     try {
@@ -488,376 +499,389 @@ export default function UploadData() {
 
   return (
     <DashboardLayout>
-      <PageHeader
-        title="Student Data Management"
-        description="Import new students or manage existing batches"
-      >
-        <Button variant="outline" onClick={downloadTemplate} className="gap-2">
-          <Download className="h-4 w-4" />
-          Download Template
-        </Button>
-      </PageHeader>
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <PageHeader
+          title="Student Data Management"
+          description="Import and manage your student records with ease."
+          className="mb-8"
+        >
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={downloadTemplate}
+              className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
+            >
+              <Download className="h-4 w-4" />
+              Download Smart Template
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleSignOut}
+              className="gap-2 border-slate-200 text-slate-600 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors shadow-sm"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
+        </PageHeader>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Upload Area */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5 text-primary" />
-                Upload CSV Batch
-              </CardTitle>
-              <CardDescription>Upload a CSV file and assign it a batch name.</CardDescription>
-            </CardHeader>
-            {/* ... */}
-            <CardContent className="space-y-4">
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={cn(
-                  'border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer',
-                  isDragging
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50',
-                  file && 'border-success bg-success/5'
-                )}
-              >
-                {file ? (
-                  <div className="space-y-4">
-                    <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-success/10">
-                      <CheckCircle className="h-6 w-6 text-success" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{file.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {(file.size / 1024).toFixed(2)} KB
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setFile(null);
-                        setUploadResult(null);
-                        setBatchName('');
-                      }}
-                      className="gap-2"
-                    >
-                      <X className="h-4 w-4" />
-                      Remove
-                    </Button>
+        <div className="grid gap-8 lg:grid-cols-12">
+          {/* Left Column: Actions (Uploads) */}
+          <div className="lg:col-span-12 xl:col-span-8 space-y-8">
+
+            {/* Quick Actions Grid */}
+            <div className="grid md:grid-cols-2 gap-6">
+
+              {/* CSV Upload Card */}
+              <Card className="relative overflow-hidden border-none shadow-2xl bg-white/80 backdrop-blur-xl hover:shadow-3xl transition-all duration-300 group">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-indigo-50/30 to-purple-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <CardHeader className="relative z-10">
+                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <FileSpreadsheet className="h-6 w-6 text-white" />
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-primary/10">
-                      <Upload className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium">
-                        Drag & Drop CSV, or{' '}
-                        <Label
-                          htmlFor="file-upload"
-                          className="text-primary cursor-pointer hover:underline"
-                        >
-                          browse
-                        </Label>
-                      </p>
-                    </div>
-                    <Input
-                      id="file-upload"
-                      type="file"
-                      accept=".csv"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {file && (
-                <div className="space-y-2">
-                  <Label>Batch Name</Label>
-                  <Input
-                    value={batchName}
-                    onChange={(e) => setBatchName(e.target.value)}
-                    placeholder="e.g. Class 10 - 2024"
-                  />
-                  <p className="text-xs text-muted-foreground">This name will be used to filter matching photos and students later.</p>
-
-                  <Button
-                    onClick={handleUpload}
-                    disabled={isUploading || !batchName.trim()}
-                    className="w-full mt-2 gradient-primary"
-                  >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Import Batch
-                      </>
+                  <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">Import CSV Batch</CardTitle>
+                  <CardDescription className="text-gray-500">
+                    Upload your student data (CSV).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="relative z-10">
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={cn(
+                      'relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 cursor-pointer group/drop',
+                      isDragging
+                        ? 'border-indigo-500 bg-indigo-50/50 scale-[1.02]'
+                        : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50/50',
+                      file && 'border-emerald-500 bg-emerald-50/30'
                     )}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* BULK PHOTO UPLOAD CARD */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Upload className="h-5 w-5 text-primary" />
-                Batch Photo Upload
-              </CardTitle>
-              <CardDescription>
-                Upload multiple photos. They will be auto-matched to students based on <b>Original Filename</b> (csv 'photo_ref') or <b>Roll Number</b>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:bg-muted/50 transition-colors">
-                <input
-                  type="file"
-                  id="bulk-photos"
-                  multiple
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handlePhotoSelect}
-                />
-                <Label htmlFor="bulk-photos" className="cursor-pointer block">
-                  {photoFiles.length > 0 ? (
-                    <div className="space-y-2">
-                      <CheckCircle className="h-8 w-8 text-green-500 mx-auto" />
-                      <p className="font-medium text-green-600">{photoFiles.length} Photos Selected</p>
-                      <p className="text-xs text-muted-foreground">Click to change selection</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Upload className="h-8 w-8 text-muted-foreground mx-auto" />
-                      <p className="font-medium">Select Photos Directory</p>
-                      <p className="text-xs text-muted-foreground">Select multiple files (Ctrl+Click or Drag selection)</p>
-                    </div>
-                  )}
-                </Label>
-              </div>
-
-              {photoFiles.length > 0 && (
-                <div className="space-y-2">
-                  {photoUploadProgress && (
-                    <div className="text-sm space-y-1">
-                      <div className="flex justify-between">
-                        <span>Processing... {photoUploadProgress.processed}/{photoUploadProgress.total}</span>
-                        <span>{Math.round((photoUploadProgress.processed / photoUploadProgress.total) * 100)}%</span>
+                  >
+                    {file ? (
+                      <div className="space-y-4 animate-in zoom-in-50 duration-300">
+                        <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-full bg-emerald-100 shadow-inner">
+                          <CheckCircle className="h-8 w-8 text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-lg text-slate-800">{file.name}</p>
+                          <p className="text-sm text-slate-500">{(file.size / 1024).toFixed(2)} KB</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFile(null);
+                            setUploadResult(null);
+                            setBatchName('');
+                          }}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          Cancel
+                        </Button>
                       </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all duration-300"
-                          style={{ width: `${(photoUploadProgress.processed / photoUploadProgress.total) * 100}%` }}
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="h-20 w-full flex items-center justify-center">
+                          <div className="relative">
+                            <div className="absolute inset-0 bg-indigo-200 rounded-full blur-xl opacity-20 animate-pulse" />
+                            <Upload className="relative h-10 w-10 text-indigo-400 group-hover/drop:text-indigo-600 transition-colors duration-300" />
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-700">
+                            Drag & drop or <span className="text-indigo-600 font-semibold underlin-offset-4 hover:underline">browse</span>
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">Supports .csv files</p>
+                        </div>
+                        <Input
+                          id="file-upload"
+                          type="file"
+                          accept=".csv"
+                          onChange={handleFileChange}
+                          className="hidden"
                         />
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Matched: {photoUploadProgress.success} | Failed/Unmatched: {photoUploadProgress.failed}
-                      </p>
-                    </div>
-                  )}
-
-                  <Button
-                    onClick={handleBulkPhotoUpload}
-                    disabled={!!photoUploadProgress}
-                    className="w-full"
-                  >
-                    {photoUploadProgress ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                    Start Photo Matching & Upload
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Results */}
-          {uploadResult && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Import Results</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-lg bg-success/10 text-center">
-                      <p className="text-3xl font-bold text-success">
-                        {uploadResult.success}
-                      </p>
-                      <p className="text-sm text-muted-foreground">Successful</p>
-                    </div>
-                    <div className="p-4 rounded-lg bg-destructive/10 text-center">
-                      <p className="text-3xl font-bold text-destructive">
-                        {uploadResult.failed}
-                      </p>
-                      <p className="text-sm text-muted-foreground">Failed</p>
-                    </div>
+                    )}
                   </div>
 
-                  {uploadResult.errors.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-destructive" />
-                        Errors
-                      </p>
-                      <div className="max-h-48 overflow-auto rounded-lg border border-border p-3 bg-muted/30">
-                        {uploadResult.errors.map((error, index) => (
-                          <p key={index} className="text-xs text-muted-foreground">
-                            {error}
-                          </p>
-                        ))}
+                  {file && (
+                    <div className="mt-6 space-y-3 animate-in fade-in slide-in-from-bottom-4">
+                      <Label htmlFor="batch-name" className="text-sm font-semibold text-slate-700">Batch Name</Label>
+                      <Input
+                        id="batch-name"
+                        value={batchName}
+                        onChange={(e) => setBatchName(e.target.value)}
+                        placeholder="e.g. Class 10 - 2024"
+                        className="h-11 border-slate-200 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
+                      />
+                      <Button
+                        onClick={handleUpload}
+                        disabled={isUploading || !batchName.trim()}
+                        className="w-full h-11 bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-lg disabled:opacity-50 hover:from-black hover:to-slate-900 transition-all rounded-lg font-medium"
+                      >
+                        {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Start Import"}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Photo Upload Card */}
+              <Card className="relative overflow-hidden border-none shadow-2xl bg-white/80 backdrop-blur-xl hover:shadow-3xl transition-all duration-300 group">
+                <div className="absolute inset-0 bg-gradient-to-bl from-pink-50/50 via-rose-50/30 to-orange-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <CardHeader className="relative z-10">
+                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <Upload className="h-6 w-6 text-white" />
+                  </div>
+                  <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">Batch Photos</CardTitle>
+                  <CardDescription className="text-gray-500">
+                    Auto-match & upload student photos.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 relative z-10">
+                  <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-pink-300 hover:bg-pink-50/30 transition-all duration-300 relative group/photo">
+                    <input
+                      type="file"
+                      id="bulk-photos"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handlePhotoSelect}
+                    />
+                    <Label htmlFor="bulk-photos" className="cursor-pointer block">
+                      <div className="flex flex-col items-center gap-3">
+                        {photoFiles.length > 0 ? (
+                          <>
+                            <CheckCircle className="h-10 w-10 text-emerald-500 drop-shadow-md" />
+                            <span className="font-semibold text-emerald-700">{photoFiles.length} Photos Selected</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className="p-3 bg-rose-50 rounded-full group-hover/photo:bg-white transition-colors">
+                              <Upload className="h-6 w-6 text-rose-500" />
+                            </div>
+                            <span className="text-sm font-medium text-slate-600">Select Folder</span>
+                          </>
+                        )}
                       </div>
+                    </Label>
+                  </div>
+
+                  {photoFiles.length > 0 && (
+                    <div className="space-y-4 animate-in slide-in-from-bottom-2">
+                      {photoUploadProgress && (
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs font-semibold uppercase text-slate-500 tracking-wider">
+                            <span>Processing</span>
+                            <span>{Math.round((photoUploadProgress.processed / photoUploadProgress.total) * 100)}%</span>
+                          </div>
+                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-300 ease-out"
+                              style={{ width: `${(photoUploadProgress.processed / photoUploadProgress.total) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <Button
+                        onClick={handleBulkPhotoUpload}
+                        disabled={!!photoUploadProgress}
+                        className="w-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg disabled:opacity-50"
+                      >
+                        {photoUploadProgress ? <Loader2 className="animate-spin mr-2" /> : "Start Photo Match"}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+            </div>
+
+            {/* Results Section */}
+            {uploadResult && (
+              <div className="animate-in fade-in slide-in-from-top-4">
+                <Card className="border-l-4 border-l-slate-800 shadow-xl bg-white/90 backdrop-blur">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <FileCheck className="h-5 w-5 text-emerald-600" />
+                      Import Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                        <div className="text-2xl font-bold text-emerald-700">{uploadResult.success}</div>
+                        <div className="text-xs font-medium text-emerald-600 uppercase tracking-wide">Success</div>
+                      </div>
+                      <div className="p-4 rounded-xl bg-rose-50 border border-rose-100">
+                        <div className="text-2xl font-bold text-rose-700">{uploadResult.failed}</div>
+                        <div className="text-xs font-medium text-rose-600 uppercase tracking-wide">Failed</div>
+                      </div>
+                    </div>
+                    {uploadResult.errors.length > 0 && (
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 max-h-40 overflow-y-auto custom-scrollbar">
+                        <h4 className="flex items-center gap-2 text-sm font-semibold text-rose-600 mb-2">
+                          <AlertCircle className="h-4 w-4" /> Import Errors
+                        </h4>
+                        <ul className="space-y-1">
+                          {uploadResult.errors.map((err, i) => (
+                            <li key={i} className="text-xs text-slate-600 font-mono">• {err}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Existing Batches List (Enhanced) */}
+            <Card className="border-none shadow-2xl bg-white/80 backdrop-blur-xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="text-xl font-bold text-slate-800">Recent Batches</CardTitle>
+                    <CardDescription>Manage and submit your data batches.</CardDescription>
+                  </div>
+                  <Database className="h-5 w-5 text-slate-400" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-xl border border-slate-100 overflow-hidden bg-white/50">
+                  {loadingBatches ? (
+                    <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-indigo-500" /></div>
+                  ) : existingBatches.length > 0 ? (
+                    <Table>
+                      <TableHeader className="bg-slate-50/80">
+                        <TableRow>
+                          <TableHead className="font-semibold text-slate-700">Batch Info</TableHead>
+                          <TableHead className="text-right font-semibold text-slate-700">Created</TableHead>
+                          <TableHead className="w-[100px]"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {existingBatches.map((batch) => (
+                          <TableRow key={batch.id} className="hover:bg-slate-50/50 transition-colors">
+                            <TableCell>
+                              <div className="font-medium text-slate-900">{batch.batch_name}</div>
+                              <div className="mt-1">
+                                <span className={cn(
+                                  "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
+                                  batch.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                                    batch.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
+                                      batch.status === 'processing' ? 'bg-amber-100 text-amber-700' :
+                                        'bg-slate-100 text-slate-600'
+                                )}>
+                                  {batch.status || 'DRAFT'}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-slate-500">
+                              {new Date(batch.created_at).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-2">
+                                {batch.status === 'draft' && (
+                                  <Button
+                                    size="sm"
+                                    className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    onClick={async () => {
+                                      if (confirm("Submit this batch?")) {
+                                        await supabase.from('print_batches' as any).update({ status: 'submitted', submitted_at: new Date() }).eq('id', batch.id);
+                                        toast.success("Batch Submitted!");
+                                        fetchBatches();
+                                      }
+                                    }}
+                                  >
+                                    Submit
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                  onClick={() => deleteBatch(batch.batch_name)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="p-12 text-center">
+                      <p className="text-slate-500 mb-2">No batches yet</p>
+                      <p className="text-xs text-slate-400">Import a CSV to get started</p>
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
-          )}
-        </div>
 
-        {/* Right Column: Template Preview & Batches */}
-        <div className="space-y-6">
-          {/* TEMPLATE PREVIEW CARD */}
-          {previewImage && (
-            <Card className="border-primary/20 bg-primary/5">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <CardIcon className="h-5 w-5 text-primary" />
-                  Your ID Card Template
-                </CardTitle>
-                <CardDescription>This is how your students' ID cards will look.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 flex justify-center pb-6">
-                {/* Updated max height for cleaner look */}
-                <div className="relative rounded-lg overflow-hidden shadow-lg border border-border bg-white" style={{ maxWidth: '300px' }}>
-                  <img src={previewImage} alt="ID Card Preview" className="w-full h-auto object-contain" />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Existing Batches List */}
-          <Card className="h-full flex flex-col">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" /> Existing Batches</CardTitle>
-              <CardDescription>Manage your uploaded student data groups</CardDescription>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-auto">
-              {loadingBatches ? (
-                <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>
-              ) : existingBatches.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Batch Name</TableHead>
-                      <TableHead className="text-right">Students</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {existingBatches.map((batch) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium">
-                          {batch.batch_name}
-                          <br />
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full ${batch.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            batch.status === 'submitted' ? 'bg-blue-100 text-blue-800' :
-                              batch.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-gray-100 text-gray-800'
-                            }`}>
-                            {batch.status?.toUpperCase() || 'DRAFT'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right text-xs">
-                          {new Date(batch.created_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {batch.status === 'draft' && (
-                              <Button size="sm" variant="default" className="h-7 text-xs" onClick={async () => {
-                                if (confirm("Submit this batch to the Print Shop? You won't be able to edit it easily after.")) {
-                                  await supabase.from('print_batches' as any).update({ status: 'submitted', submitted_at: new Date() }).eq('id', batch.id);
-                                  toast.success("Batch Submited!");
-                                  fetchBatches();
-                                }
-                              }}>
-                                Submit
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => deleteBatch(batch.batch_name)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <p>No batches found.</p>
-                  <p className="text-xs">Upload a CSV to create a batch.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-      </div>
-
-      {/* CSV Format Guide */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-lg">CSV Format Guide</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-2 pr-4 font-medium">Column</th>
-                  <th className="text-left py-2 pr-4 font-medium">Required</th>
-                  <th className="text-left py-2 font-medium">Description</th>
-                </tr>
-              </thead>
-              <tbody className="text-muted-foreground">
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">roll_number</td>
-                  <td className="py-2 pr-4">Yes</td>
-                  <td className="py-2">Unique student identifier</td>
-                </tr>
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">name</td>
-                  <td className="py-2 pr-4">Yes</td>
-                  <td className="py-2">Full name of the student</td>
-                </tr>
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">photo_ref</td>
-                  <td className="py-2 pr-4">No</td>
-                  <td className="py-2">Original filename (e.g. img_123.jpg) for auto-matching</td>
-                </tr>
-                <tr className="border-b border-border/50">
-                  <td className="py-2 pr-4 font-mono text-xs">email</td>
-                  <td className="py-2 pr-4">No</td>
-                  <td className="py-2">Student email address</td>
-                </tr>
-              </tbody>
-            </table>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Right Column: Template Preview */}
+          <div className="lg:col-span-12 xl:col-span-4 space-y-6">
+            <div className="sticky top-6">
+              <Card className="overflow-hidden border-none shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white">
+                <CardHeader className="pb-4">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <CardIcon className="h-5 w-5 text-indigo-400" />
+                    Your ID Template
+                  </CardTitle>
+                  <CardDescription className="text-slate-300">
+                    Live preview of your school's assigned design.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center pb-8 pt-4">
+                  {previewImage ? (
+                    <div className="relative group">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg blur opacity-50 group-hover:opacity-100 transition duration-500" />
+                      <div className="relative rounded-lg overflow-hidden bg-white shadow-2xl transform group-hover:scale-[1.02] transition-all duration-500">
+                        <img
+                          src={previewImage}
+                          alt="ID Preview"
+                          className="max-w-full w-auto max-h-[400px] object-contain"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-48 w-full flex items-center justify-center border-2 border-dashed border-slate-600/50 rounded-lg bg-slate-800/50">
+                      <span className="text-slate-500 text-sm">No template assigned</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* CSV Guide */}
+              <Card className="mt-6 border-none shadow-xl bg-white/80 backdrop-blur">
+                <CardHeader>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider text-slate-500">Quick Guide</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-sm">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">1</div>
+                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Download Template</span> to get the correct headers.</p>
+                    </div>
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">2</div>
+                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Fill Data</span> ensuring unique Roll Numbers.</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">3</div>
+                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Upload Photos</span> matching the exact filenames in your CSV.</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </div>
     </DashboardLayout>
+
   );
 }
