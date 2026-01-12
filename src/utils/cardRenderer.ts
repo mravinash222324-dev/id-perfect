@@ -99,6 +99,28 @@ async function performReplacements(canvas: fabric.StaticCanvas, student: any) {
             const scaleY = phHeight / fabricImage.height!;
             const scale = Math.max(scaleX, scaleY); // Cover
 
+            const isCircle = (photoPlaceholder as any).isCircle;
+            let clipPath;
+
+            if (isCircle) {
+                clipPath = new fabric.Circle({
+                    radius: phWidth / 2 / scale,
+                    originX: 'center',
+                    originY: 'center',
+                    left: 0,
+                    top: 0
+                });
+            } else {
+                clipPath = new fabric.Rect({
+                    left: 0,
+                    top: 0,
+                    width: phWidth / scale,
+                    height: phHeight / scale,
+                    originX: 'center',
+                    originY: 'center',
+                });
+            }
+
             fabricImage.set({
                 left: centerX,
                 top: centerY,
@@ -106,14 +128,7 @@ async function performReplacements(canvas: fabric.StaticCanvas, student: any) {
                 originY: 'center',
                 scaleX: scale,
                 scaleY: scale,
-                clipPath: new fabric.Rect({
-                    left: 0,
-                    top: 0,
-                    width: phWidth / scale,
-                    height: phHeight / scale,
-                    originX: 'center',
-                    originY: 'center',
-                })
+                clipPath: clipPath
             });
 
             canvas.remove(photoPlaceholder);

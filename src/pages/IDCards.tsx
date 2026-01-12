@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -122,6 +121,9 @@ export default function IDCards() {
     }
   };
 
+  /* ----------------------------------------------------------------------------------
+   * PDF GENERATION LOGIC (10-UP A4)
+   * ---------------------------------------------------------------------------------- */
   const generateCards = async () => {
     if (!selectedTemplate || selectedStudents.length === 0) {
       toast.error('Please select a template and at least one student');
@@ -132,116 +134,91 @@ export default function IDCards() {
     const template = templates.find(t => t.id === selectedTemplate);
     if (!template) return;
 
-    // 1. Calculate Dimensions
-    const widthPx = template.card_width || 1011;
-    const heightPx = template.card_height || 638;
+    // Fixed Dimensions for PDF Layout (Portrait Mode)
+    // Card: 57mm x 89mm
+    // Grid: 3 columns, 3 rows (9 cards per page)
+    // Page: A4 (210mm x 297mm)
+    const cardWidthMm = 57;
+    const cardHeightMm = 89;
+    const cardsPerPage = 9;
+    
+    // Page Margins (Centered)
+    // Horizontal: (210 - (57*3)) / 2 = (210 - 171) / 2 = 19.5mm
+    // Vertical: (297 - (89*3)) / 2 = (297 - 267) / 2 = 15mm
+    const marginLeft = 19.5;
+    const marginTop = 15;
+    const colGap = 0; // Adjacent
+    const rowGap = 0; // Adjacent
 
-    // Convert pixels to mm for PDF (assuming 300 DPI)
-    // 1 inch = 25.4 mm => pixels / 300 * 25.4
-    const widthMm = (widthPx / 300) * 25.4;
-    const heightMm = (heightPx / 300) * 25.4;
+    // Canvas size for high-quality rasterization (300 DPI)
+    // 57mm / 25.4 * 300 = ~673 px
+    // 89mm / 25.4 * 300 = ~1051 px
+    const canvasWidthPx = 673;
+    const canvasHeightPx = 1051;
 
     const doc = new jsPDF({
-      orientation: widthMm > heightMm ? 'landscape' : 'portrait',
+      orientation: 'portrait',
       unit: 'mm',
-      format: [widthMm, heightMm]
+      format: 'a4'
     });
 
-    // 2. Rendering Loop
     try {
-      // Loop through selected students
+      let cardsOnCurrentPage = 0;
+
       for (let i = 0; i < selectedStudents.length; i++) {
         const studentId = selectedStudents[i];
         const student = students.find(s => s.id === studentId);
         if (!student) continue;
 
-        if (i > 0) doc.addPage([widthMm, heightMm]);
+        // Add new page if needed
+        if (i > 0 && cardsOnCurrentPage === cardsPerPage) {
+          doc.addPage();
+          cardsOnCurrentPage = 0;
+        }
 
-        // Fix: Create NEW canvas element for each iteration to avoid reuse pollution
+        // Calculate Position
+        const colIndex = cardsOnCurrentPage % 3; // 0, 1, 2
+        const rowIndex = Math.floor(cardsOnCurrentPage / 3); // 0, 1, 2
+
+        const xPos = marginLeft + (colIndex * (cardWidthMm + colGap));
+        const yPos = marginTop + (rowIndex * (cardHeightMm + rowGap));
+
         const canvasEl = document.createElement('canvas');
-        canvasEl.width = widthPx;
-        canvasEl.height = heightPx;
-
+        canvasEl.width = canvasWidthPx;
+        canvasEl.height = canvasHeightPx;
         const canvas = new fabric.StaticCanvas(canvasEl);
+
         const cardOverride = reviewOverrides.get(studentId) || {};
 
-        // --- FRONT SIDE ---
+        // --- FRONT SIDE ONLY (Default for 10-up) ---
         let frontSource = cardOverride.front || template.front_design;
-
-        // 1. Unwrap legacy nested front_design if present
-        if (frontSource && frontSource.front_design) {
-          frontSource = frontSource.front_design;
-        }
-        // 2. Parse if string
-        if (typeof frontSource === 'string') {
-          try { frontSource = JSON.parse(frontSource); } catch (e) { }
-        }
+        if (frontSource && frontSource.front_design) frontSource = frontSource.front_design;
+        if (typeof frontSource === 'string') { try { frontSource = JSON.parse(frontSource); } catch (e) { } }
 
         if (frontSource) {
-          // Clear and load Front
-          canvas.clear();
-          await canvas.loadFromJSON(frontSource);
+           canvas.clear();
+           await canvas.loadFromJSON(frontSource);
+           
+           if (!cardOverride.front) {
+             await performReplacements(canvas, student, bulkPhotos);
+           }
+           canvas.renderAll();
+           const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
+           
+           doc.addImage(imgData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
 
-          if (!cardOverride.front) {
-            await performReplacements(canvas, student, bulkPhotos);
-          }
-          canvas.renderAll();
-          const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
-          doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
-
-          if (withBorder) {
-            doc.setLineWidth(0.5);
-            doc.setDrawColor(0, 0, 0);
-            doc.rect(0, 0, widthMm, heightMm);
-          }
+           if (withBorder) {
+             doc.setLineWidth(0.1);
+             doc.setDrawColor(200, 200, 200); 
+             doc.rect(xPos, yPos, cardWidthMm, cardHeightMm);
+           }
         }
-
-        // --- BACK SIDE ---
-        let backSource = cardOverride.back || template.back_design;
-
-        // 1. Fallback: Check if back matches "front" legacy pattern or nested
-        if (!backSource && template.front_design?.back_design) {
-          backSource = template.front_design.back_design;
-        }
-        // 2. Unwrap legacy nested back_design if present (e.g. from a bad save)
-        if (backSource && backSource.back_design) {
-          backSource = backSource.back_design;
-        }
-
-        // 3. Parse if string
-        if (typeof backSource === 'string') {
-          try { backSource = JSON.parse(backSource); } catch (e) { }
-        }
-
-        if (backSource) {
-          doc.addPage([widthMm, heightMm]);
-
-          // Clear and load Back
-          canvas.clear();
-          await canvas.loadFromJSON(backSource);
-
-          if (!cardOverride.back) {
-            await performReplacements(canvas, student, bulkPhotos);
-          }
-
-          canvas.renderAll();
-          const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
-          doc.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
-
-          if (withBorder) {
-            doc.setLineWidth(0.5);
-            doc.setDrawColor(0, 0, 0);
-            doc.rect(0, 0, widthMm, heightMm);
-          }
-        }
-
-
-
-        canvas.dispose(); // Dispose canvas after use (re-created next loop, or we could reuse)
+        
+        canvas.dispose();
+        cardsOnCurrentPage++;
       }
 
-      // 5. Download
-      doc.save(`id_cards_batch_${Date.now()}.pdf`);
+      doc.save(`id_cards_10up_${Date.now()}.pdf`);
       toast.success(`Generated ID cards for ${selectedStudents.length} students`);
 
     } catch (error: any) {
@@ -282,7 +259,7 @@ export default function IDCards() {
         onClose={() => setIsReviewOpen(false)}
         students={students.filter(s => selectedStudents.includes(s.id))}
         template={templates.find(t => t.id === selectedTemplate)}
-        onSaveOverrides={(overrides) => setReviewOverrides(overrides)}
+        onSaveOverrides={(overrides: any) => setReviewOverrides(overrides)}
         initialOverrides={reviewOverrides}
         bulkPhotos={bulkPhotos}
       />
@@ -355,8 +332,8 @@ export default function IDCards() {
                   <span className="font-medium">{selectedStudents.length}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Est. Output:</span>
-                  <span className="font-medium">{selectedStudents.length} pages</span>
+                  <span className="text-muted-foreground">A4 Pages Required:</span>
+                  <span className="font-medium">{Math.ceil(selectedStudents.length / 10)}</span>
                 </div>
               </div>
             </CardContent>
@@ -521,13 +498,28 @@ async function performReplacements(canvas: any, student: any, bulkPhotos: Map<st
         const scaleY = phHeight / fabricImage.height!;
         const scale = Math.max(scaleX, scaleY);
 
+        const isCircle = (photoPlaceholder as any).isCircle;
+        let clipPath;
+
+        if (isCircle) {
+           clipPath = new fabric.Circle({
+             radius: phWidth / 2 / scale,
+             originX: 'center', originY: 'center',
+             left: 0, top: 0
+           });
+        } else {
+           clipPath = new fabric.Rect({
+             left: 0, top: 0, 
+             width: phWidth / scale, 
+             height: phHeight / scale,
+             originX: 'center', originY: 'center',
+           });
+        }
+
         fabricImage.set({
           left: centerX, top: centerY, originX: 'center', originY: 'center',
           scaleX: scale, scaleY: scale,
-          clipPath: new fabric.Rect({
-            left: 0, top: 0, width: phWidth / scale, height: phHeight / scale,
-            originX: 'center', originY: 'center',
-          })
+          clipPath: clipPath
         });
         canvas.remove(photoPlaceholder);
         canvas.add(fabricImage);
@@ -539,7 +531,7 @@ async function performReplacements(canvas: any, student: any, bulkPhotos: Map<st
   }
 }
 
-const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides, initialOverrides, bulkPhotos }: any) => {
+function BatchReviewModal({ isOpen, onClose, students, template, onSaveOverrides, initialOverrides, bulkPhotos }: any) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
   const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
@@ -733,4 +725,4 @@ const BatchReviewModal = ({ isOpen, onClose, students, template, onSaveOverrides
       </DialogContent>
     </Dialog>
   );
-};
+}

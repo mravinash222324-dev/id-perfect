@@ -1,8 +1,8 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { CanvasEditor } from '@/components/id-card/CanvasEditor';
+import { CanvasEditor, CanvasEditorRef } from '@/components/id-card/CanvasEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -10,79 +10,38 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
-
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function DesignStudio() {
-  const [cardWidth, setCardWidth] = useState(1011);
-  const [cardHeight, setCardHeight] = useState(638);
+  // Fixed Standard Size: 5.7cm x 8.9cm @ 300 DPI (Portrait)
+  // 5.7cm / 2.54 * 300 = 673 px (Width)
+  // 8.9cm / 2.54 * 300 = 1051 px (Height)
+  const [cardWidth] = useState(673);
+  const [cardHeight] = useState(1051);
   const [templateName, setTemplateName] = useState('');
   const [description, setDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [canvasData, setCanvasData] = useState<any>(null);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  
+  const editorRef = useRef<CanvasEditorRef>(null);
 
   const handleEditorSave = (data: any) => {
     setCanvasData(data);
     setIsSaveDialogOpen(true);
   };
-
-  const applyPreset = (value: string) => {
-    switch (value) {
-      case 'cr80-landscape':
-        setCardWidth(1011);
-        setCardHeight(638);
-        break;
-      case 'cr80-portrait':
-        setCardWidth(638);
-        setCardHeight(1011);
-        break;
-      case 'cr79-landscape':
-        setCardWidth(991);
-        setCardHeight(602);
-        break;
-      case 'cr79-portrait':
-        setCardWidth(602);
-        setCardHeight(991);
-        break;
-      case 'cr100-landscape':
-        setCardWidth(1167);
-        setCardHeight(791);
-        break;
-      case 'cr100-portrait':
-        setCardWidth(791);
-        setCardHeight(1167);
-        break;
-      case 'business-landscape':
-        setCardWidth(1050);
-        setCardHeight(600);
-        break;
-      case 'business-portrait':
-        setCardWidth(600);
-        setCardHeight(1050);
-        break;
-      case 'a7-landscape':
-        setCardWidth(1240);
-        setCardHeight(874);
-        break;
-      case 'a7-portrait':
-        setCardWidth(874);
-        setCardHeight(1240);
-        break;
-      case 'a4-portrait':
-        setCardWidth(2480);
-        setCardHeight(3508);
-        break;
-      case 'a4-landscape':
-        setCardWidth(3508);
-        setCardHeight(2480);
-        break;
-    }
-  };
-
+  
   /* ------------------- NEW: School Assignment Logic ------------------- */
   const [schools, setSchools] = useState<any[]>([]);
   const [assignedSchoolIds, setAssignedSchoolIds] = useState<string[]>([]);
+  
+  const toggleSchoolAssignment = (schoolId: string) => {
+    setAssignedSchoolIds(prev =>
+      prev.includes(schoolId)
+        ? prev.filter(id => id !== schoolId)
+        : [...prev, schoolId]
+    );
+  };
 
   // Fetch schools when dialog opens
   useEffect(() => {
@@ -107,13 +66,6 @@ export default function DesignStudio() {
     }
   }, [isSaveDialogOpen]);
 
-  const toggleSchoolAssignment = (schoolId: string) => {
-    setAssignedSchoolIds(prev =>
-      prev.includes(schoolId)
-        ? prev.filter(id => id !== schoolId)
-        : [...prev, schoolId]
-    );
-  };
   /* ------------------------------------------------------------------- */
 
   const saveTemplateToDb = async () => {
@@ -175,53 +127,18 @@ export default function DesignStudio() {
   return (
     <DashboardLayout>
       <PageHeader title="ID Card Design Studio" description="Create and manage professional ID card templates">
-        <div className="flex items-center gap-4">
-          <div className="w-64">
-            <Select onValueChange={applyPreset} defaultValue="cr80-landscape">
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Size Preset" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cr80-landscape">CR80 Standard (Landscape)</SelectItem>
-                <SelectItem value="cr80-portrait">CR80 Standard (Portrait)</SelectItem>
-                <SelectItem value="cr79-landscape">CR79 Adhesive (Landscape)</SelectItem>
-                <SelectItem value="cr79-portrait">CR79 Adhesive (Portrait)</SelectItem>
-                <SelectItem value="cr100-landscape">CR100 Oversize (Landscape)</SelectItem>
-                <SelectItem value="cr100-portrait">CR100 Oversize (Portrait)</SelectItem>
-                <SelectItem value="business-landscape">Business Card (3.5"x2")</SelectItem>
-                <SelectItem value="a7-landscape">A7 Badge (Landscape)</SelectItem>
-                <SelectItem value="a7-portrait">A7 Badge (Portrait)</SelectItem>
-                <SelectItem value="a4-portrait">A4 Document (Portrait)</SelectItem>
-                <SelectItem value="a4-landscape">A4 Document (Landscape)</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="flex items-center justify-between">
+          <div className="bg-muted px-4 py-2 rounded-lg text-sm font-mono text-muted-foreground border">
+            Fixed Standard Size: 5.7cm x 8.9cm (Portrait)
           </div>
-
-          <div className="flex items-center gap-2">
-            <Label>W:</Label>
-            <Input
-              type="number"
-              value={cardWidth}
-              onChange={(e) => setCardWidth(Number(e.target.value))}
-              className="w-20 h-9"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Label>H:</Label>
-            <Input
-              type="number"
-              value={cardHeight}
-              onChange={(e) => setCardHeight(Number(e.target.value))}
-              className="w-20 h-9"
-            />
-          </div>
+        </div>
+      </PageHeader>
+      <div className="h-[calc(100vh-100px)] flex flex-col gap-2 -mt-4">
+        <div className="flex justify-end">
           <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-            {/* This button is just a trigger, the real save comes from the editor callback */}
-            <DialogTrigger asChild>
-              <Button className="gradient-primary gap-2 invisible">
+              <Button className="gradient-primary gap-2" onClick={() => editorRef.current?.triggerSave()}>
                 Save
               </Button>
-            </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Save Template</DialogTitle>
@@ -277,11 +194,12 @@ export default function DesignStudio() {
             </DialogContent>
           </Dialog>
         </div>
-      </PageHeader>
 
-      <div className="h-[calc(100vh-200px)]">
-        <CanvasEditor onSave={handleEditorSave} width={cardWidth} height={cardHeight} />
+        <div className="flex-1 min-h-0">
+          <CanvasEditor ref={editorRef} onSave={handleEditorSave} width={cardWidth} height={cardHeight} />
+        </div>
       </div>
     </DashboardLayout>
   );
 }
+

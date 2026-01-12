@@ -1,12 +1,16 @@
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as fabric from 'fabric';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut } from 'lucide-react';
+
+export interface CanvasEditorRef {
+    triggerSave: () => void;
+}
 
 interface CanvasEditorProps {
     initialData?: any;
@@ -15,7 +19,7 @@ interface CanvasEditorProps {
     height?: number;
 }
 
-export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }: CanvasEditorProps) {
+export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ initialData, onSave, width = 1011, height = 638 }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
     const [selectedObject, setSelectedObject] = useState<fabric.FabricObject | null>(null);
@@ -26,6 +30,13 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
     const switchingSideRef = useRef(false);
     const [frontJson, setFrontJson] = useState<any>(null); // Store front design
     const [backJson, setBackJson] = useState<any>(null); // Store back design
+    const [zoom, setZoom] = useState(1);
+
+    useImperativeHandle(ref, () => ({
+        triggerSave: () => {
+            handleSave();
+        }
+    }));
 
     // Keep ref in sync
     useEffect(() => {
@@ -244,12 +255,45 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                 const phHeight = photoPlaceholder.height! * photoPlaceholder.scaleY!;
                 const phLeft = photoPlaceholder.left!;
                 const phTop = photoPlaceholder.top!;
-                const centerX = phLeft + (phWidth / 2);
-                const centerY = phTop + (phHeight / 2);
+                
+                // Correction for group origin (Circle group is usually center/center, Rect group is top/left in original code)
+                // But my new Circle Group is center/center. My original Rect Group was default (top/left).
+                // Let's normalize calculations.
+                
+                let centerX, centerY;
+                if (photoPlaceholder.originX === 'center') {
+                     centerX = phLeft;
+                     centerY = phTop;
+                } else {
+                     centerX = phLeft + (phWidth / 2);
+                     centerY = phTop + (phHeight / 2);
+                }
 
                 const scaleX = phWidth / fabricImage.width!;
                 const scaleY = phHeight / fabricImage.height!;
                 const scale = Math.max(scaleX, scaleY);
+
+                const isCircle = (photoPlaceholder as any).isCircle;
+                let clipPath;
+
+                if (isCircle) {
+                    clipPath = new fabric.Circle({
+                        radius: phWidth / 2 / scale, // radius in image coordinate space
+                        originX: 'center',
+                        originY: 'center',
+                        left: 0, 
+                        top: 0
+                    });
+                } else {
+                    clipPath = new fabric.Rect({
+                        left: 0,
+                        top: 0,
+                        width: phWidth / scale,
+                        height: phHeight / scale,
+                        originX: 'center',
+                        originY: 'center',
+                    });
+                }
 
                 fabricImage.set({
                     left: centerX,
@@ -258,14 +302,7 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                     originY: 'center',
                     scaleX: scale,
                     scaleY: scale,
-                    clipPath: new fabric.Rect({
-                        left: 0,
-                        top: 0,
-                        width: phWidth / scale,
-                        height: phHeight / scale,
-                        originX: 'center',
-                        originY: 'center',
-                    }),
+                    clipPath: clipPath,
                     selectable: false,
                 });
 
@@ -418,6 +455,43 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
         reader.readAsDataURL(file);
     };
 
+    // Add Circle Photo Placeholder
+    const addCirclePhotoPlaceholder = () => {
+        if (!canvas) return;
+        
+        const circle = new fabric.Circle({
+            radius: 75, // Diameter 150
+            fill: '#f0f0f0',
+            stroke: '#cccccc',
+            strokeWidth: 2,
+            originX: 'center',
+            originY: 'center'
+        });
+
+        const text = new fabric.Text('PHOTO', {
+            fontSize: 20,
+            fill: '#999999',
+            originX: 'center',
+            originY: 'center',
+            selectable: false
+        });
+
+        const group = new fabric.Group([circle, text], {
+            left: 100,
+            top: 100,
+            // Important: Use origin center for easier circle clipping calculations later
+            originX: 'center', 
+            originY: 'center'
+        });
+        
+        // Tag the group so we know it's a photo placeholder AND it's circular
+        (group as any).isPhotoPlaceholder = true;
+        (group as any).isCircle = true; 
+
+        canvas.add(group);
+        canvas.setActiveObject(group);
+    };
+
     // Add Shape
     const addShape = (type: 'rect' | 'circle') => {
         if (!canvas) return;
@@ -459,6 +533,28 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
         canvas.requestRenderAll();
     };
 
+    // Layer Management
+    const handleLayer = (action: 'front' | 'back' | 'forward' | 'backward') => {
+        if (!canvas || !selectedObject) return;
+        
+        switch (action) {
+            case 'front':
+                canvas.bringObjectToFront(selectedObject);
+                break;
+            case 'back':
+                canvas.sendObjectToBack(selectedObject);
+                break;
+            case 'forward':
+                canvas.bringObjectForward(selectedObject);
+                break;
+            case 'backward':
+                canvas.sendObjectBackwards(selectedObject);
+                break;
+        }
+        canvas.renderAll();
+        saveCurrentSide(canvas);
+    };
+
 
     // Alignment Logic
     const handleAlign = (alignment: string) => {
@@ -497,12 +593,86 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
         selectedObject.setCoords();
         canvas.requestRenderAll();
         updateProperty('textAlign', alignment);
+        updateProperty('textAlign', alignment);
     };
 
+    // Fit to Canvas
+    const fitToCanvas = () => {
+        if (!canvas || !selectedObject) return;
+        const cw = canvas.width || 0;
+        const ch = canvas.height || 0;
+        
+        // Reset scale first to get accurate calculation? 
+        // No, use width/height * scaleX/scaleY generally, but raw width/height is better basis
+        
+        // Covering logic (like object-fit: cover)
+        // scale = max(targetW/objW, targetH/objH)
+        
+        const objW = selectedObject.width || 0;
+        const objH = selectedObject.height || 0;
+        
+        if (objW === 0 || objH === 0) return;
+
+        const scaleX = cw / objW;
+        const scaleY = ch / objH;
+        
+        // Use max to cover, min to contain. Usually "background" implies cover.
+        const scale = Math.max(scaleX, scaleY);
+
+        selectedObject.set({
+            scaleX: scale,
+            scaleY: scale,
+            left: cw / 2,
+            top: ch / 2,
+            originX: 'center',
+            originY: 'center'
+        });
+        
+        selectedObject.setCoords();
+        canvas.requestRenderAll();
+    };
+
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Auto-Fit Canvas on Mount
+    useEffect(() => {
+        const fitCanvas = () => {
+             if (!containerRef.current) return;
+             const container = containerRef.current;
+             
+             // Available space (subtracting padding p-8 = 32px*2 = 64px, plus some buffer)
+             const padding = 80; 
+             const availableW = container.clientWidth - padding;
+             const availableH = container.clientHeight - padding - 50; // Extra buffer for Tabs
+
+             if (availableW <= 0 || availableH <= 0) return;
+
+             const scaleX = availableW / width;
+             const scaleY = availableH / height;
+
+             // Fit to whichever is smaller constraint
+             let newZoom = Math.min(scaleX, scaleY);
+             
+             // Cap initial zoom to reasonable limits (e.g. don't zoom in to 500% on tiny cards)
+             newZoom = Math.min(Math.max(newZoom, 0.1), 1.0); 
+
+             setZoom(newZoom);
+        };
+
+        // Initial fit with small delay for layout paint
+        const timeout = setTimeout(fitCanvas, 50);
+        window.addEventListener('resize', fitCanvas);
+        
+        return () => {
+            clearTimeout(timeout);
+            window.removeEventListener('resize', fitCanvas);
+        };
+    }, [width, height]); // Re-run if card dimensions change
+
     return (
-        <div className="flex bg-background border rounded-lg overflow-hidden h-[800px]">
+        <div className="flex bg-background border rounded-lg overflow-hidden h-full">
             {/* Sidebar - Tools */}
-            <div className="w-64 bg-muted/30 border-r p-4 flex flex-col gap-4">
+            <div className="w-64 bg-muted/30 border-r p-4 flex flex-col gap-4 overflow-y-auto">
 
                 {/* Preview Toggle */}
                 <div className="pb-4 border-b">
@@ -541,7 +711,10 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                                 </Button>
                             </div>
                             <Button variant="outline" size="sm" onClick={addImagePlaceholder} className="justify-start">
-                                <ImageIcon className="w-4 h-4 mr-2" /> Photo Box
+                                <ImageIcon className="w-4 h-4 mr-2" /> Rect Photo
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={addCirclePhotoPlaceholder} className="justify-start">
+                                <Circle className="w-4 h-4 mr-2" /> Circle Photo
                             </Button>
                         </div>
                     </div>
@@ -597,22 +770,49 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
             </div>
 
             {/* Main Canvas Area */}
-            <div className="flex-1 bg-gray-100 relative overflow-auto flex flex-col items-center justify-center p-8">
-                <div className="mb-4">
-                    <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
-                        <TabsList className="bg-white/50 backdrop-blur-sm border shadow-sm">
-                            <TabsTrigger value="front" className="w-24">Front Side</TabsTrigger>
-                            <TabsTrigger value="back" className="w-24">Back Side</TabsTrigger>
-                        </TabsList>
-                    </Tabs>
+            <div className="flex-1 bg-gray-100 relative flex flex-col min-w-0 overflow-hidden">
+                {/* Scrollable Container */}
+                <div ref={containerRef} className="flex-1 overflow-auto p-8 flex">
+                    <div className="m-auto flex flex-col items-center">
+                        <div className="mb-4">
+                            <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
+                                <TabsList className="bg-white/50 backdrop-blur-sm border shadow-sm">
+                                    <TabsTrigger value="front" className="w-24">Front Side</TabsTrigger>
+                                    <TabsTrigger value="back" className="w-24">Back Side</TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+                        </div>
+                        <div 
+                            className="shadow-2xl relative transition-all duration-200 ease-out" 
+                            style={{ 
+                                width: width * zoom, 
+                                height: height * zoom 
+                            }}
+                        >
+                            <div className="origin-top-left" style={{ transform: `scale(${zoom})` }}>
+                                <canvas ref={canvasRef} />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div className="shadow-2xl">
-                    <canvas ref={canvasRef} />
+
+                {/* Zoom Controls Overlay - Fixed outside scroll flow */}
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border shadow-lg rounded-full px-4 py-2 flex items-center gap-4 z-10">
+                   <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>
+                     <ZoomOut className="w-3 h-3" />
+                   </Button>
+                   <span className="text-xs font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
+                   <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.min(2, z + 0.1))}>
+                     <ZoomIn className="w-3 h-3" />
+                   </Button>
+                   <div className="w-px h-4 bg-border mx-1" />
+                   <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(1)}>Reset</Button>
+                   <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(0.5)}>Fit</Button>
                 </div>
             </div>
 
             {/* Right Sidebar - Properties */}
-            <div className="w-72 bg-muted/30 border-l p-4">
+            <div className="w-72 bg-muted/30 border-l p-4 overflow-y-auto">
                 {selectedObject ? (
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
@@ -639,7 +839,6 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                                     />
                                 </div>
                             </div>
-
                             <div className="space-y-2">
                                 <Label>Opacity</Label>
                                 <Slider
@@ -649,6 +848,30 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                                     onValueChange={(vals) => updateProperty('opacity', vals[0] / 100)}
                                 />
                             </div>
+
+                            <div className="space-y-2">
+                                <Label>Layer Order</Label>
+                                <div className="flex gap-1">
+                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('front')} title="Bring to Front">
+                                        <ChevronsUp className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('forward')} title="Bring Forward">
+                                        <ChevronUp className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('backward')} title="Send Backward">
+                                        <ChevronDown className="h-4 w-4" />
+                                    </Button>
+                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('back')} title="Send to Back">
+                                        <ChevronsDown className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                {(selectedObject.type === 'image' || selectedObject.type === 'rect') && (
+                                     <Button variant="secondary" size="sm" className="w-full mt-2" onClick={fitToCanvas}>
+                                        <Maximize className="w-4 h-4 mr-2" /> Fit to Canvas
+                                     </Button>
+                                )}
+                            </div>
+
 
                             {/* Text Specific Properties */}
                             {(selectedObject instanceof fabric.IText || selectedObject.type === 'i-text') && (
@@ -707,10 +930,12 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
                                             >
                                                 <AlignRight className="h-4 w-4" />
                                             </Button>
-                                        </div>
+                                            </div>
                                     </div>
+                                    
                                 </>
                             )}
+
                         </div>
                     </div>
                 ) : (
@@ -722,4 +947,4 @@ export function CanvasEditor({ initialData, onSave, width = 1011, height = 638 }
             </div>
         </div >
     );
-}
+});
