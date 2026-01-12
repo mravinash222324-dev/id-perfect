@@ -164,12 +164,39 @@ export default function UploadData() {
     const rows: Record<string, string>[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      // Handle comma inside quotes simple regex or library (using simple split for now as per code style)
-      // If complex CSV needed, we should suggest library, but simple split is extant.
-      const values = lines[i].split(',').map((v) => v.trim());
+      // Improved CSV regex to handle quoted commas
+      // Matches commas not inside quotes
+      const values = lines[i].match(/(?:\"([^\"]*)\")|([^,]+)|(?<=,)(?=,)|^(?=,)|(?<=,)$/g) || [];
+      // Clean up values: remove quotes if present, trim
+      const cleanedValues = values.map(v => {
+          if (!v) return '';
+          const trimmed = v.trim();
+          if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+              return trimmed.slice(1, -1).trim();
+          }
+          return trimmed.replace(/^,|,$/g, '').trim(); // Remove leading/trailing commas from split artifacts if any
+      });
+
+      // The above regex is tricky. Let's use a simpler split approach for robustness
+      // split by , but ignore inside quotes
+      const matches = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+      // Fallback if match fails (e.g. empty fields)
+      let rowValues: string[] = [];
+      
+      if (matches) {
+         rowValues = matches.map(m => m.replace(/^"|"$/g, '').trim());
+      } else {
+         // Fallback to simple split if regex fails completely (unlikely for valid CSVs but safe)
+         rowValues = lines[i].split(',').map(v => v.trim());
+      }
+      
+      // Fix: The regex above might miss empty fields between commas (e.g. ,,).
+      // Better approach:
+      const rowData = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+
       const row: Record<string, string> = {};
       headers.forEach((header, index) => {
-        row[header] = values[index] || '';
+        row[header] = rowData[index] || '';
       });
       rows.push(row);
     }
@@ -281,7 +308,11 @@ export default function UploadData() {
   };
 
   const handleBulkPhotoUpload = async () => {
-    if (photoFiles.length === 0) return;
+    console.log('[BatchUpload] Button Clicked. Files selected:', photoFiles.length);
+    if (photoFiles.length === 0) {
+        console.warn('[BatchUpload] No files selected.');
+        return;
+    }
 
     setPhotoUploadProgress({ processed: 0, total: photoFiles.length, success: 0, failed: 0 });
 
@@ -317,10 +348,14 @@ export default function UploadData() {
     const rollMap = new Map();
     const refMap = new Map();
 
+    console.log(`[BatchUpload] Matching against ${students.length} students from DB.`);
+
     students.forEach(s => {
-      if (s.roll_number) rollMap.set(s.roll_number.toLowerCase().trim(), s.id);
-      if (s.photo_ref) refMap.set(s.photo_ref.toLowerCase().trim(), s.id);
+      if (s.roll_number) rollMap.set(String(s.roll_number).toLowerCase().trim(), s.id);
+      if (s.photo_ref) refMap.set(String(s.photo_ref).toLowerCase().trim(), s.id);
     });
+    
+    console.log('[BatchUpload] RefMap Keys (Sample):', Array.from(refMap.keys()).slice(0, 10));
 
     let successCount = 0;
     let failCount = 0;
@@ -329,20 +364,24 @@ export default function UploadData() {
     for (const file of photoFiles) {
       const name = file.name; // e.g. "IMG_123.jpg"
       const nameKey = name.toLowerCase().trim();
-      const nameNoExt = name.split('.')[0].toLowerCase().trim(); // "img_123"
+      // Handle extension stripping robustly
+      const nameNoExt = name.substring(0, name.lastIndexOf('.')) || name;
+      const nameNoExtLower = nameNoExt.toLowerCase().trim();
+
+      console.log(`[BatchUpload] Processing: ${name} -> Key: ${nameKey}, NoExt: ${nameNoExtLower}`);
 
       // Try to find match
       // 1. Exact 'photo_ref' match (e.g. csv had "IMG_123.jpg")
       let studentId = refMap.get(nameKey);
 
-      // 2. 'photo_ref' match without extension (e.g. csv had "IMG_123")
-      if (!studentId) studentId = refMap.get(nameNoExt);
+      // 2. 'photo_ref' match without extension (e.g. csv had "IMG_123" or "1")
+      if (!studentId) studentId = refMap.get(nameNoExtLower);
 
       // 3. Roll number match (exact filename)
       if (!studentId) studentId = rollMap.get(nameKey);
 
       // 4. Roll number match (no extension)
-      if (!studentId) studentId = rollMap.get(nameNoExt);
+      if (!studentId) studentId = rollMap.get(nameNoExtLower);
 
       if (studentId) {
         try {

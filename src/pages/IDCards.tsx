@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import jsPDF from 'jspdf';
 import * as fabric from 'fabric';
+import { renderCardSide } from '@/utils/cardRenderer';
 
 export default function IDCards() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -193,24 +194,25 @@ export default function IDCards() {
         // --- FRONT SIDE ONLY (Default for 10-up) ---
         let frontSource = cardOverride.front || template.front_design;
         if (frontSource && frontSource.front_design) frontSource = frontSource.front_design;
-        if (typeof frontSource === 'string') { try { frontSource = JSON.parse(frontSource); } catch (e) { } }
-
+        
         if (frontSource) {
-           canvas.clear();
-           await canvas.loadFromJSON(frontSource);
+           // Use shared renderer for consistent logic
+           const imgData = await renderCardSide(
+               frontSource, 
+               student, 
+               canvasWidthPx, 
+               canvasHeightPx, 
+               bulkPhotos
+           );
            
-           if (!cardOverride.front) {
-             await performReplacements(canvas, student, bulkPhotos);
-           }
-           canvas.renderAll();
-           const imgData = canvas.toDataURL({ format: 'png', multiplier: 1 });
-           
-           doc.addImage(imgData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
+           if (imgData) {
+               doc.addImage(imgData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
 
-           if (withBorder) {
-             doc.setLineWidth(0.1);
-             doc.setDrawColor(200, 200, 200); 
-             doc.rect(xPos, yPos, cardWidthMm, cardHeightMm);
+               if (withBorder) {
+                 doc.setLineWidth(0.1);
+                 doc.setDrawColor(200, 200, 200); 
+                 doc.rect(xPos, yPos, cardWidthMm, cardHeightMm);
+               }
            }
         }
         

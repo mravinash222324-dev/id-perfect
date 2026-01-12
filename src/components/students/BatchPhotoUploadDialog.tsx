@@ -30,6 +30,7 @@ export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete, b
     };
 
     const handleBulkPhotoUpload = async () => {
+        console.log('[BatchUploadDialog] Button Clicked. Files selected:', photoFiles.length);
         if (photoFiles.length === 0) return;
 
         setPhotoUploadProgress({ processed: 0, total: photoFiles.length, success: 0, failed: 0 });
@@ -68,10 +69,14 @@ export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete, b
             const rollMap = new Map();
             const refMap = new Map();
 
+            console.log(`[BatchUpload] Matching against ${students.length} students.`);
+
             students.forEach(s => {
-                if (s.roll_number) rollMap.set(s.roll_number.toLowerCase().trim(), s.id);
-                if (s.photo_ref) refMap.set(s.photo_ref.toLowerCase().trim(), s.id);
+                if (s.roll_number) rollMap.set(String(s.roll_number).toLowerCase().trim(), s.id);
+                if (s.photo_ref) refMap.set(String(s.photo_ref).toLowerCase().trim(), s.id);
             });
+            
+            console.log('[BatchUpload] RefMap Keys:', Array.from(refMap.keys()));
 
             let successCount = 0;
             let failCount = 0;
@@ -80,20 +85,23 @@ export function BatchPhotoUploadDialog({ open, onOpenChange, onUploadComplete, b
             for (const file of photoFiles) {
                 const name = file.name; // e.g. "IMG_123.jpg"
                 const nameKey = name.toLowerCase().trim();
-                const nameNoExt = name.split('.')[0].toLowerCase().trim(); // "img_123"
+                const nameNoExt = name.substring(0, name.lastIndexOf('.')) || name;
+                const nameNoExtLower = nameNoExt.toLowerCase().trim();
+
+                console.log(`[BatchUpload] Processing: ${name} -> Key: ${nameKey}, NoExt: ${nameNoExtLower}`);
 
                 // Try to find match
                 // 1. Exact 'photo_ref' match (e.g. csv had "IMG_123.jpg")
                 let studentId = refMap.get(nameKey);
 
                 // 2. 'photo_ref' match without extension (e.g. csv had "IMG_123")
-                if (!studentId) studentId = refMap.get(nameNoExt);
+                if (!studentId) studentId = refMap.get(nameNoExtLower);
 
                 // 3. Roll number match (exact filename)
                 if (!studentId) studentId = rollMap.get(nameKey);
 
                 // 4. Roll number match (no extension)
-                if (!studentId) studentId = rollMap.get(nameNoExt);
+                if (!studentId) studentId = rollMap.get(nameNoExtLower);
 
                 if (studentId) {
                     try {

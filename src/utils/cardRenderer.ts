@@ -4,11 +4,15 @@ import * as fabric from 'fabric';
 /**
  * Renders a single ID card side (front/back) to a Base64 PNG string.
  */
+/**
+ * Renders a single ID card side (front/back) to a Base64 PNG string.
+ */
 export const renderCardSide = async (
     designJson: any,
     student: any,
     width: number,
-    height: number
+    height: number,
+    bulkPhotos?: Map<string, File>
 ): Promise<string> => {
     // Create a temporary canvas element
     const canvasEl = document.createElement('canvas');
@@ -18,7 +22,6 @@ export const renderCardSide = async (
     const canvas = new fabric.StaticCanvas(canvasEl);
 
     // Load the design
-    // Handle stringified JSON if needed
     let source = designJson;
     if (typeof source === 'string') {
         try { source = JSON.parse(source); } catch (e) { console.error("JSON parse error", e); return ''; }
@@ -29,7 +32,7 @@ export const renderCardSide = async (
     await canvas.loadFromJSON(source);
 
     // Perform Replacements
-    await performReplacements(canvas, student);
+    await performReplacements(canvas, student, bulkPhotos);
 
     canvas.renderAll();
     const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 1 });
@@ -44,7 +47,7 @@ export const renderCardSide = async (
 /**
  * Helper to replace {{keys}} and photo placeholders
  */
-async function performReplacements(canvas: fabric.StaticCanvas, student: any) {
+async function performReplacements(canvas: fabric.StaticCanvas, student: any, bulkPhotos?: Map<string, File>) {
     const objects = canvas.getObjects();
 
     // 1. Text Replacement
@@ -70,73 +73,101 @@ async function performReplacements(canvas: fabric.StaticCanvas, student: any) {
     });
 
     // 2. Photo Replacement
-    const photoPlaceholder = objects.find((obj: any) => obj.data?.isPhotoPlaceholder || (obj as any).isPhotoPlaceholder);
+    // Find the placeholder object
+    const photoPlaceholder = objects.find((obj: any) => (obj.data?.isPhotoPlaceholder) || (obj as any).isPhotoPlaceholder);
 
-    if (photoPlaceholder && student.photo_url) {
+    if (photoPlaceholder) {
         try {
-            const imgUrl = student.photo_url;
+            let imgUrl = student.photo_url;
 
-            const imgElement = await new Promise<HTMLImageElement>((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous'; // Critical for CORS
-                img.onload = () => resolve(img);
-                img.onerror = (e) => reject(e);
-                img.src = imgUrl; // Ensure this URL is accessible
-            });
+            // Debug Matching from Bulk Photos if no URL
+            if (!imgUrl && bulkPhotos && bulkPhotos.size > 0) {
+                // Try matching by Roll Number (primary) or specific field if needed
+                const rollKey = student.roll_number?.toLowerCase().trim();
+                // Also could match by Photo Ref if present
+                const refKey = student.photo_ref?.toLowerCase().trim();
 
-            const fabricImage = new fabric.Image(imgElement);
+                let file: File | undefined;
+                if (rollKey && bulkPhotos.has(rollKey)) file = bulkPhotos.get(rollKey);
+                else if (refKey && bulkPhotos.has(refKey)) file = bulkPhotos.get(refKey);
 
-            // Legacy Scale/Fit Logic from IDCards.tsx
-            const phWidth = photoPlaceholder.width! * (photoPlaceholder.scaleX || 1);
-            const phHeight = photoPlaceholder.height! * (photoPlaceholder.scaleY || 1);
-            const phLeft = photoPlaceholder.left!;
-            const phTop = photoPlaceholder.top!;
-
-            const centerX = phLeft + (phWidth / 2);
-            const centerY = phTop + (phHeight / 2);
-
-            const scaleX = phWidth / fabricImage.width!;
-            const scaleY = phHeight / fabricImage.height!;
-            const scale = Math.max(scaleX, scaleY); // Cover
-
-            const isCircle = (photoPlaceholder as any).isCircle;
-            let clipPath;
-
-            if (isCircle) {
-                clipPath = new fabric.Circle({
-                    radius: phWidth / 2 / scale,
-                    originX: 'center',
-                    originY: 'center',
-                    left: 0,
-                    top: 0
-                });
-            } else {
-                clipPath = new fabric.Rect({
-                    left: 0,
-                    top: 0,
-                    width: phWidth / scale,
-                    height: phHeight / scale,
-                    originX: 'center',
-                    originY: 'center',
-                });
+                if (file) {
+                    imgUrl = URL.createObjectURL(file);
+                }
             }
 
-            fabricImage.set({
-                left: centerX,
-                top: centerY,
-                originX: 'center',
-                originY: 'center',
-                scaleX: scale,
-                scaleY: scale,
-                clipPath: clipPath
-            });
+            if (imgUrl) {
+                const imgElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous'; // Critical for CORS
+                    img.onload = () => resolve(img);
+                    img.onerror = (e) => reject(e);
+                    img.src = imgUrl!; // Ensure this URL is accessible
+                });
 
-            canvas.remove(photoPlaceholder);
-            canvas.add(fabricImage);
-            // Ensure photo is at correct Z-index? Usually placeholders are on top or middle. 
-            // Ideally we'd preserve index, but adding puts it on top. 
-            // `canvas.insertAt` if we knew index. For now simple add is okay.
+                const fabricImage = new fabric.Image(imgElement);
 
+                // --- ROBUST PLACEMENT LOGIC ---
+                // 1. Get placeholder dimensions and center
+                // Use getCenterPoint to handle any origin (left, center, custom)
+                const center = photoPlaceholder.getCenterPoint();
+                const phWidth = photoPlaceholder.getScaledWidth();
+                const phHeight = photoPlaceholder.getScaledHeight();
+
+                // 2. Calculate Scale to COVER the placeholder area
+                const scaleX = phWidth / fabricImage.width!;
+                const scaleY = phHeight / fabricImage.height!;
+                const scale = Math.max(scaleX, scaleY); // 'cover' fit
+
+                // 3. Handle Clipping (Circle vs Rect)
+                const isCircle = (photoPlaceholder as any).isCircle || (photoPlaceholder as any).data?.isCircle;
+                let clipPath;
+
+                // ClipPath is relative to the *image's* center (0,0)
+                if (isCircle) {
+                    clipPath = new fabric.Circle({
+                        radius: Math.min(phWidth, phHeight) / 2 / scale, // Radius in original image pixels
+                        originX: 'center',
+                        originY: 'center',
+                        left: 0,
+                        top: 0
+                    });
+                } else {
+                    clipPath = new fabric.Rect({
+                        width: phWidth / scale,
+                        height: phHeight / scale,
+                        originX: 'center',
+                        originY: 'center',
+                        left: 0,
+                        top: 0
+                    });
+                }
+
+                // 4. Configure New Image
+                fabricImage.set({
+                    left: center.x,
+                    top: center.y,
+                    originX: 'center', // Always place by center
+                    originY: 'center',
+                    scaleX: scale,
+                    scaleY: scale,
+                    clipPath: clipPath
+                });
+
+                // 5. Insert at correct Z-index
+                const placeholderIndex = canvas.getObjects().indexOf(photoPlaceholder);
+                
+                // Remove placeholder
+                canvas.remove(photoPlaceholder);
+
+                // Insert new image at specific index to preserve layering (e.g. below frames/text)
+                if (placeholderIndex >= 0) {
+                    canvas.insertAt(placeholderIndex, fabricImage);
+                } else {
+                    canvas.add(fabricImage);
+                }
+
+            }
         } catch (err) {
             console.warn(`Could not load photo for student ${student.name}`, err);
         }

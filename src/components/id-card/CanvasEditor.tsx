@@ -139,7 +139,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
         // Fix: Don't save if we are in the middle of switching sides OR in preview mode
         if (switchingSideRef.current || isPreviewRef.current) return;
 
-        const json = c.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable']);
+        const json = c.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable', 'isCircle']);
         // Fix: Use ref to get current side inside event listeners (closure trap)
         if (activeSideRef.current === 'front') {
             setFrontJson(json);
@@ -189,7 +189,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     const handleSave = () => {
         if (!canvas) return;
         // Ensure current side is up to date
-        const currentJson = canvas.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable']);
+        const currentJson = canvas.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable', 'isCircle']);
 
         const finalData = {
             front_design: activeSide === 'front' ? currentJson : frontJson,
