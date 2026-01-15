@@ -47,27 +47,54 @@ export const renderCardSide = async (
 /**
  * Helper to replace {{keys}} and photo placeholders
  */
-async function performReplacements(canvas: fabric.StaticCanvas, student: any, bulkPhotos?: Map<string, File>) {
+/**
+ * Helper to replace {{keys}} and photo placeholders
+ */
+export async function performReplacements(canvas: fabric.StaticCanvas | fabric.Canvas, student: any, bulkPhotos?: Map<string, File>) {
     const objects = canvas.getObjects();
 
     // 1. Text Replacement
     objects.forEach((obj: any) => {
+        let isAddress = false;
+
         // Handle {{key}} logic
         if (obj.type === 'i-text' && obj.text?.includes('{{') && obj.text?.includes('}}')) {
             let newText = obj.text.replace(/{{(.*?)}}/g, (match: string, key: string) => {
                 const cleanKey = key.trim();
+                if (cleanKey === 'address') isAddress = true;
                 const val = student[cleanKey];
                 return (val !== null && val !== undefined) ? String(val) : match;
             });
-            obj.set({ text: newText });
+            // Update text if changed
+            if (obj.text !== newText) {
+                obj.set({ text: newText });
+            }
         }
 
         // Handle data-binding logic (obj.data.key)
-        if (obj.data?.key || (obj as any).key) { // (obj as any).key support legacy
+        if (obj.data?.key || (obj as any).key) {
             const key = obj.data?.key || (obj as any).key;
+            if (key === 'address') isAddress = true;
             const val = student[key];
-            if (val !== null && val !== undefined) {
+            // eslint-disable-next-line eqeqeq
+            if (val != null) {
+                // If the user hasn't explicitly edited the text manually (how do we know?)
+                // For now, always sync from data.
                 obj.set({ text: String(val) });
+            }
+        }
+
+        // Apply Font Scaling for Address
+        // Logic: Store original size to avoid drift if re-applying
+        if (isAddress && student.address_font_size) {
+            const scale = Number(student.address_font_size) / 100;
+            if (!isNaN(scale) && scale > 0) {
+                const currentSize = (obj as any).originalFontSize || obj.fontSize || 20;
+                if (!(obj as any).originalFontSize) (obj as any).originalFontSize = currentSize;
+
+                const targetSize = currentSize * scale;
+                // Set safely
+                obj.set({ fontSize: targetSize });
             }
         }
     });
@@ -156,7 +183,7 @@ async function performReplacements(canvas: fabric.StaticCanvas, student: any, bu
 
                 // 5. Insert at correct Z-index
                 const placeholderIndex = canvas.getObjects().indexOf(photoPlaceholder);
-                
+
                 // Remove placeholder
                 canvas.remove(photoPlaceholder);
 

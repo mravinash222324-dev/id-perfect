@@ -239,7 +239,9 @@ export type Database = {
       students: {
         Row: {
           address: string | null
+          address_font_size: number | null
           batch: string | null
+          design_overrides: Json | null
           blood_group: string | null
           class: string | null
           created_at: string
@@ -262,7 +264,9 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          address_font_size?: number | null
           batch?: string | null
+          design_overrides?: Json | null
           blood_group?: string | null
           class?: string | null
           created_at?: string
@@ -285,7 +289,9 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          address_font_size?: number | null
           batch?: string | null
+          design_overrides?: Json | null
           blood_group?: string | null
           class?: string | null
           created_at?: string
