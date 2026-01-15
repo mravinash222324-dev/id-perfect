@@ -30,9 +30,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const showSidebar = role !== 'school';
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-screen w-full relative overflow-hidden">
+      {/* Dynamic Background Elements */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/20 blur-[100px] animate-pulse-subtle" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-secondary/20 blur-[100px] animate-pulse-subtle" />
+      </div>
+
       {showSidebar && <AppSidebar />}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto z-10 relative">
         <div className="container mx-auto p-6 lg:p-8">
           {children}
         </div>

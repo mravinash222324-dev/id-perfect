@@ -78,26 +78,26 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        'relative flex flex-col bg-card border-r border-border transition-all duration-300 ease-in-out',
+        'relative flex flex-col glass border-r border-white/5 transition-all duration-300 ease-in-out z-50',
         collapsed ? 'w-[70px]' : 'w-[260px]'
       )}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+      <div className="flex h-16 items-center justify-between px-4 border-b border-white/10">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary">
-              <CreditCard className="h-5 w-5 text-primary-foreground" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/20">
+              <CreditCard className="h-5 w-5 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-semibold">ID Studio</span>
-              <span className="text-[10px] text-muted-foreground">Card Management</span>
+              <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">RAZ ID</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Card Systems</span>
             </div>
           </div>
         )}
         {collapsed && (
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary mx-auto">
-            <CreditCard className="h-5 w-5 text-primary-foreground" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary shadow-lg shadow-primary/20 mx-auto">
+            <CreditCard className="h-5 w-5 text-white" />
           </div>
         )}
       </div>

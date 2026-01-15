@@ -255,18 +255,18 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                 const phHeight = photoPlaceholder.height! * photoPlaceholder.scaleY!;
                 const phLeft = photoPlaceholder.left!;
                 const phTop = photoPlaceholder.top!;
-                
+
                 // Correction for group origin (Circle group is usually center/center, Rect group is top/left in original code)
                 // But my new Circle Group is center/center. My original Rect Group was default (top/left).
                 // Let's normalize calculations.
-                
+
                 let centerX, centerY;
                 if (photoPlaceholder.originX === 'center') {
-                     centerX = phLeft;
-                     centerY = phTop;
+                    centerX = phLeft;
+                    centerY = phTop;
                 } else {
-                     centerX = phLeft + (phWidth / 2);
-                     centerY = phTop + (phHeight / 2);
+                    centerX = phLeft + (phWidth / 2);
+                    centerY = phTop + (phHeight / 2);
                 }
 
                 const scaleX = phWidth / fabricImage.width!;
@@ -281,7 +281,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                         radius: phWidth / 2 / scale, // radius in image coordinate space
                         originX: 'center',
                         originY: 'center',
-                        left: 0, 
+                        left: 0,
                         top: 0
                     });
                 } else {
@@ -458,7 +458,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     // Add Circle Photo Placeholder
     const addCirclePhotoPlaceholder = () => {
         if (!canvas) return;
-        
+
         const circle = new fabric.Circle({
             radius: 75, // Diameter 150
             fill: '#f0f0f0',
@@ -480,13 +480,13 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             left: 100,
             top: 100,
             // Important: Use origin center for easier circle clipping calculations later
-            originX: 'center', 
+            originX: 'center',
             originY: 'center'
         });
-        
+
         // Tag the group so we know it's a photo placeholder AND it's circular
         (group as any).isPhotoPlaceholder = true;
-        (group as any).isCircle = true; 
+        (group as any).isCircle = true;
 
         canvas.add(group);
         canvas.setActiveObject(group);
@@ -536,7 +536,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     // Layer Management
     const handleLayer = (action: 'front' | 'back' | 'forward' | 'backward') => {
         if (!canvas || !selectedObject) return;
-        
+
         switch (action) {
             case 'front':
                 canvas.bringObjectToFront(selectedObject);
@@ -601,21 +601,21 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
         if (!canvas || !selectedObject) return;
         const cw = canvas.width || 0;
         const ch = canvas.height || 0;
-        
+
         // Reset scale first to get accurate calculation? 
         // No, use width/height * scaleX/scaleY generally, but raw width/height is better basis
-        
+
         // Covering logic (like object-fit: cover)
         // scale = max(targetW/objW, targetH/objH)
-        
+
         const objW = selectedObject.width || 0;
         const objH = selectedObject.height || 0;
-        
+
         if (objW === 0 || objH === 0) return;
 
         const scaleX = cw / objW;
         const scaleY = ch / objH;
-        
+
         // Use max to cover, min to contain. Usually "background" implies cover.
         const scale = Math.max(scaleX, scaleY);
 
@@ -627,7 +627,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             originX: 'center',
             originY: 'center'
         });
-        
+
         selectedObject.setCoords();
         canvas.requestRenderAll();
     };
@@ -637,32 +637,32 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     // Auto-Fit Canvas on Mount
     useEffect(() => {
         const fitCanvas = () => {
-             if (!containerRef.current) return;
-             const container = containerRef.current;
-             
-             // Available space (subtracting padding p-8 = 32px*2 = 64px, plus some buffer)
-             const padding = 80; 
-             const availableW = container.clientWidth - padding;
-             const availableH = container.clientHeight - padding - 50; // Extra buffer for Tabs
+            if (!containerRef.current) return;
+            const container = containerRef.current;
 
-             if (availableW <= 0 || availableH <= 0) return;
+            // Available space (subtracting padding p-8 = 32px*2 = 64px, plus some buffer)
+            const padding = 80;
+            const availableW = container.clientWidth - padding;
+            const availableH = container.clientHeight - padding - 50; // Extra buffer for Tabs
 
-             const scaleX = availableW / width;
-             const scaleY = availableH / height;
+            if (availableW <= 0 || availableH <= 0) return;
 
-             // Fit to whichever is smaller constraint
-             let newZoom = Math.min(scaleX, scaleY);
-             
-             // Cap initial zoom to reasonable limits (e.g. don't zoom in to 500% on tiny cards)
-             newZoom = Math.min(Math.max(newZoom, 0.1), 1.0); 
+            const scaleX = availableW / width;
+            const scaleY = availableH / height;
 
-             setZoom(newZoom);
+            // Fit to whichever is smaller constraint
+            let newZoom = Math.min(scaleX, scaleY);
+
+            // Cap initial zoom to reasonable limits (e.g. don't zoom in to 500% on tiny cards)
+            newZoom = Math.min(Math.max(newZoom, 0.1), 1.0);
+
+            setZoom(newZoom);
         };
 
         // Initial fit with small delay for layout paint
         const timeout = setTimeout(fitCanvas, 50);
         window.addEventListener('resize', fitCanvas);
-        
+
         return () => {
             clearTimeout(timeout);
             window.removeEventListener('resize', fitCanvas);
@@ -735,7 +735,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                         <Label className="text-xs uppercase text-muted-foreground font-bold">Data Fields</Label>
                         <div className="grid grid-cols-2 gap-2">
                             {['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch'].map(field => (
-                                <Button key={field} variant="ghost" size="sm" onClick={() => addPlaceholder(field)} className="justify-start font-mono text-[10px] h-8 truncate" title={field}>
+                                <Button key={field} variant="outline" size="sm" onClick={() => addPlaceholder(field)} className="justify-start font-mono text-[10px] h-8 truncate bg-card/50 hover:bg-primary/20 hover:text-primary hover:border-primary/50 transition-all" title={field}>
                                     {`{{${field}}}`}
                                 </Button>
                             ))}
@@ -776,17 +776,17 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                     <div className="m-auto flex flex-col items-center">
                         <div className="mb-4">
                             <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
-                                <TabsList className="bg-white/50 backdrop-blur-sm border shadow-sm">
-                                    <TabsTrigger value="front" className="w-24">Front Side</TabsTrigger>
-                                    <TabsTrigger value="back" className="w-24">Back Side</TabsTrigger>
+                                <TabsList className="glass p-1">
+                                    <TabsTrigger value="front" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white">Front Side</TabsTrigger>
+                                    <TabsTrigger value="back" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white">Back Side</TabsTrigger>
                                 </TabsList>
                             </Tabs>
                         </div>
-                        <div 
-                            className="shadow-2xl relative transition-all duration-200 ease-out" 
-                            style={{ 
-                                width: width * zoom, 
-                                height: height * zoom 
+                        <div
+                            className="shadow-2xl relative transition-all duration-200 ease-out"
+                            style={{
+                                width: width * zoom,
+                                height: height * zoom
                             }}
                         >
                             <div className="origin-top-left" style={{ transform: `scale(${zoom})` }}>
@@ -797,17 +797,17 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                 </div>
 
                 {/* Zoom Controls Overlay - Fixed outside scroll flow */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border shadow-lg rounded-full px-4 py-2 flex items-center gap-4 z-10">
-                   <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>
-                     <ZoomOut className="w-3 h-3" />
-                   </Button>
-                   <span className="text-xs font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
-                   <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.min(2, z + 0.1))}>
-                     <ZoomIn className="w-3 h-3" />
-                   </Button>
-                   <div className="w-px h-4 bg-border mx-1" />
-                   <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(1)}>Reset</Button>
-                   <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(0.5)}>Fit</Button>
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 glass px-4 py-2 flex items-center gap-4 z-10 rounded-full border-white/10">
+                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>
+                        <ZoomOut className="w-3 h-3" />
+                    </Button>
+                    <span className="text-xs font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.min(2, z + 0.1))}>
+                        <ZoomIn className="w-3 h-3" />
+                    </Button>
+                    <div className="w-px h-4 bg-border mx-1" />
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(1)}>Reset</Button>
+                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(0.5)}>Fit</Button>
                 </div>
             </div>
 
@@ -866,9 +866,9 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                                     </Button>
                                 </div>
                                 {(selectedObject.type === 'image' || selectedObject.type === 'rect') && (
-                                     <Button variant="secondary" size="sm" className="w-full mt-2" onClick={fitToCanvas}>
+                                    <Button variant="secondary" size="sm" className="w-full mt-2" onClick={fitToCanvas}>
                                         <Maximize className="w-4 h-4 mr-2" /> Fit to Canvas
-                                     </Button>
+                                    </Button>
                                 )}
                             </div>
 
@@ -930,9 +930,9 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                                             >
                                                 <AlignRight className="h-4 w-4" />
                                             </Button>
-                                            </div>
+                                        </div>
                                     </div>
-                                    
+
                                 </>
                             )}
 
