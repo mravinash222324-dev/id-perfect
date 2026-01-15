@@ -143,20 +143,23 @@ export default function AdminSchools() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newSchoolName, setNewSchoolName] = useState('');
     const [newSchoolEmail, setNewSchoolEmail] = useState('');
-    const [newSchoolPassword, setNewSchoolPassword] = useState('');
+    // Password is now auto-generated
     const [newSchoolTemplates, setNewSchoolTemplates] = useState<string[]>([]);
     const [creationLoading, setCreationLoading] = useState(false);
     const [isSuccessOpen, setIsSuccessOpen] = useState(false);
     const [createdLink, setCreatedLink] = useState('');
 
     const createSchoolAccount = async () => {
-        if (!newSchoolName || !newSchoolEmail || !newSchoolPassword) {
+        if (!newSchoolName || !newSchoolEmail) {
             toast.error("Please fill in all fields");
             return;
         }
 
         setCreationLoading(true);
         try {
+            // Generate a secure random password
+            const newSchoolPassword = crypto.randomUUID() + crypto.randomUUID();
+
             // 1. Create a SECONDARY client
             const tempClient = createClient(
                 import.meta.env.VITE_SUPABASE_URL,
@@ -279,7 +282,6 @@ export default function AdminSchools() {
             // Reset Form but keep templates if needed? No, reset all.
             setNewSchoolName('');
             setNewSchoolEmail('');
-            setNewSchoolPassword('');
             setNewSchoolTemplates([]);
 
         } catch (error: any) {
@@ -448,10 +450,7 @@ export default function AdminSchools() {
                                 <label className="text-sm font-medium">Email</label>
                                 <Input value={newSchoolEmail} onChange={e => setNewSchoolEmail(e.target.value)} placeholder="admin@school.com" />
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Password</label>
-                                <Input value={newSchoolPassword} onChange={e => setNewSchoolPassword(e.target.value)} placeholder="Secure Password" />
-                            </div>
+
 
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Assign Templates (Optional)</label>
