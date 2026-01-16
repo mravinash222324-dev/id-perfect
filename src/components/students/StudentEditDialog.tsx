@@ -49,7 +49,8 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
 
         const canvas = new fabric.Canvas(canvasRef.current, {
             preserveObjectStacking: true,
-            selection: true
+            selection: true,
+            renderOnAddRemove: false // OPTIMIZATION: Manual render only
         });
         fabricCanvasRef.current = canvas;
 
@@ -113,80 +114,82 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
         canvas.setDimensions({ width, height });
 
         // Load
-        try {
-            // If source is string, parse
-            let src = designSource;
-            if (typeof src === 'string') src = JSON.parse(src);
+        setTimeout(async () => {
+            try {
+                // If source is string, parse
+                let src = designSource;
+                if (typeof src === 'string') src = JSON.parse(src);
 
-            await canvas.loadFromJSON(src);
+                await canvas.loadFromJSON(src);
 
-            // Initial Replacement
-            // Initial Replacement
-            await performReplacements(canvas, formData);
+                // Initial Replacement
+                // Initial Replacement
+                await performReplacements(canvas, formData);
 
-            // Upgrade I-Text to Textbox for wrapping & Unlock objects
-            const objects = canvas.getObjects();
-            const replacements: { old: fabric.Object, new: fabric.Object }[] = [];
+                // Upgrade I-Text to Textbox for wrapping & Unlock objects
+                const objects = canvas.getObjects();
+                const replacements: { old: fabric.Object, new: fabric.Object }[] = [];
 
-            objects.forEach((obj) => {
-                let targetObj = obj;
+                objects.forEach((obj) => {
+                    let targetObj = obj;
 
-                // Upgrade i-text to textbox if it's not already
-                if (obj.type === 'i-text') {
-                    // Convert to Textbox
-                    const textObj = obj as fabric.IText;
+                    // Upgrade i-text to textbox if it's not already
+                    if (obj.type === 'i-text') {
+                        // Convert to Textbox
+                        const textObj = obj as fabric.IText;
 
-                    // Manually copy properties to avoid TS issues with toObject types
-                    const textbox = new fabric.Textbox(textObj.text || '', {
-                        left: textObj.left,
-                        top: textObj.top,
-                        width: textObj.width || 100, // Reset width or keep?
-                        height: textObj.height,
-                        scaleX: textObj.scaleX,
-                        scaleY: textObj.scaleY,
-                        fill: textObj.fill,
-                        fontSize: textObj.fontSize,
-                        fontFamily: textObj.fontFamily,
-                        fontWeight: textObj.fontWeight,
-                        fontStyle: textObj.fontStyle,
-                        originX: textObj.originX,
-                        originY: textObj.originY,
-                        textAlign: textObj.textAlign,
-                        data: (textObj as any).data,
-                        splitByGrapheme: false, // Normal word wrap
-                        // Ensure width is sufficient for wrapping if needed?
-                        // If we use current width, it might be tight.
-                    });
-                    replacements.push({ old: obj, new: textbox });
-                    targetObj = textbox;
-                }
+                        // Manually copy properties to avoid TS issues with toObject types
+                        const textbox = new fabric.Textbox(textObj.text || '', {
+                            left: textObj.left,
+                            top: textObj.top,
+                            width: textObj.width || 100, // Reset width or keep?
+                            height: textObj.height,
+                            scaleX: textObj.scaleX,
+                            scaleY: textObj.scaleY,
+                            fill: textObj.fill,
+                            fontSize: textObj.fontSize,
+                            fontFamily: textObj.fontFamily,
+                            fontWeight: textObj.fontWeight,
+                            fontStyle: textObj.fontStyle,
+                            originX: textObj.originX,
+                            originY: textObj.originY,
+                            textAlign: textObj.textAlign,
+                            data: (textObj as any).data,
+                            splitByGrapheme: false, // Normal word wrap
+                            // Ensure width is sufficient for wrapping if needed?
+                            // If we use current width, it might be tight.
+                        });
+                        replacements.push({ old: obj, new: textbox });
+                        targetObj = textbox;
+                    }
 
-                // Unlock
-                if (targetObj.type === 'i-text' || targetObj.type === 'image' || targetObj.type === 'text' || targetObj.type === 'textbox') {
-                    targetObj.set({
-                        selectable: true,
-                        hasControls: true,
-                        hasBorders: true,
-                        lockMovementX: false,
-                        lockMovementY: false,
-                        lockScalingX: false, // Allow resize
-                        lockScalingY: false,
-                        lockUniScaling: false // Allow changing aspect ratio for textbox (width vs height)
-                    });
-                }
-            });
+                    // Unlock
+                    if (targetObj.type === 'i-text' || targetObj.type === 'image' || targetObj.type === 'text' || targetObj.type === 'textbox') {
+                        targetObj.set({
+                            selectable: true,
+                            hasControls: true,
+                            hasBorders: true,
+                            lockMovementX: false,
+                            lockMovementY: false,
+                            lockScalingX: false, // Allow resize
+                            lockScalingY: false,
+                            lockUniScaling: false // Allow changing aspect ratio for textbox (width vs height)
+                        });
+                    }
+                });
 
-            // Apply replacements
-            replacements.forEach(rep => {
-                canvas.remove(rep.old);
-                canvas.add(rep.new);
-            });
+                // Apply replacements
+                replacements.forEach(rep => {
+                    canvas.remove(rep.old);
+                    canvas.add(rep.new);
+                });
 
-            canvas.renderAll();
-        } catch (e) {
-            console.error("Error loading design", e);
-            toast.error("Could not load card design");
-        }
+                canvas.renderAll();
+            } catch (e) {
+                console.error("Error loading design", e);
+                toast.error("Could not load card design");
+            }
+        }, 10);
     };
 
     const addText = () => {
@@ -320,9 +323,9 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                 <div className="flex flex-1 gap-6 overflow-hidden min-h-0">
 
                     {/* Preview - Interactive Canvas (Now Left/Main) */}
-                    <div className="flex-1 bg-muted/20 rounded-lg p-6 border-2 border-dashed border-muted-foreground/20 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div className="flex-1 bg-black/20 rounded-xl p-6 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden backdrop-blur-sm">
                         <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10 pointer-events-none">
-                            <div className="bg-white/90 p-2 rounded text-xs shadow-sm pointer-events-auto flex items-center gap-2">
+                            <div className="glass p-2 rounded-xl shadow-sm pointer-events-auto flex items-center gap-2 border border-white/10">
                                 <strong>Tools:</strong>
                                 <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => modifyAppularSelection('textAlign', 'left')} title="Align Left"><AlignLeft className="h-4 w-4" /></Button>
                                 <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => modifyAppularSelection('textAlign', 'center')} title="Align Center"><AlignCenter className="h-4 w-4" /></Button>
@@ -332,12 +335,12 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                                 <Button size="sm" variant="outline" className="h-7 text-xs ml-2" onClick={addText}>+ Text</Button>
                             </div>
                             <div className="flex gap-2 pointer-events-auto">
-                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.max(0.2, zoomLevel - 0.1))}>-</Button>
-                                <span className="bg-white/90 px-2 py-1 rounded text-sm min-w-[3rem] text-center flex items-center justify-center shadow-sm">
+                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.max(0.2, zoomLevel - 0.1))} className="shadow-lg">-</Button>
+                                <span className="glass px-2 py-1 rounded-md text-sm min-w-[3rem] text-center flex items-center justify-center shadow-lg border border-white/10 font-mono">
                                     {Math.round(zoomLevel * 100)}%
                                 </span>
-                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.min(2.0, zoomLevel + 0.1))}>+</Button>
-                                <Button size="sm" variant="outline" onClick={() => setZoomLevel(0.6)}>Reset</Button>
+                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.min(2.0, zoomLevel + 0.1))} className="shadow-lg">+</Button>
+                                <Button size="sm" variant="outline" onClick={() => setZoomLevel(0.6)} className="shadow-lg glass border-white/10 hover:bg-white/10">Reset</Button>
                             </div>
                         </div>
                         <div className="w-full h-full overflow-auto flex items-center justify-center">
