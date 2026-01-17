@@ -336,13 +336,13 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
+        if (!open) return;
 
         const handleWheel = (e: WheelEvent) => {
+            // Check for Ctrl key (Windows/Linux) or Meta key (Mac)
             if (e.ctrlKey || e.metaKey) {
-                e.preventDefault(); // PREVENT BROWSER ZOOM
-                e.stopPropagation();
+                e.preventDefault(); // STOP BROWSER ZOOM GLOBALLY
+                // e.stopPropagation(); // Optional on window
 
                 const delta = e.deltaY;
                 const sensitivity = 0.005;
@@ -355,13 +355,13 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
             }
         };
 
-        // Must be passive: false to allow preventDefault
-        container.addEventListener('wheel', handleWheel, { passive: false });
+        // Attach to window to catch events anywhere
+        window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
 
         return () => {
-            container.removeEventListener('wheel', handleWheel);
+            window.removeEventListener('wheel', handleWheel, { capture: true });
         };
-    }, [open]); // Re-attach when dialog opens
+    }, [open]);
 
     const formatLabel = (key: string) => {
         return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
