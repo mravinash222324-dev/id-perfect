@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut, Plus } from 'lucide-react';
+import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut, Plus, Lock, Unlock } from 'lucide-react';
+
 
 export interface CanvasEditorRef {
     triggerSave: () => void;
@@ -31,6 +32,17 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     const [frontJson, setFrontJson] = useState<any>(null); // Store front design
     const [backJson, setBackJson] = useState<any>(null); // Store back design
     const [zoom, setZoom] = useState(1);
+
+    const [layers, setLayers] = useState<fabric.FabricObject[]>([]);
+    const [activeLeftTab, setActiveLeftTab] = useState('assets');
+
+    // Update Layers List
+    const updateLayers = (c: fabric.Canvas) => {
+        if (!c) return;
+        // Get all objects, reverse them so top layer is first in list
+        const objs = c.getObjects().slice().reverse();
+        setLayers(objs);
+    };
 
     useImperativeHandle(ref, () => ({
         triggerSave: () => {
@@ -101,12 +113,16 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                 newCanvas.on('selection:cleared', () => setSelectedObject(null));
 
                 // Use saveHistory instead of saveCurrentSide for undo/redo
-                newCanvas.on('object:modified', () => saveHistory(newCanvas));
-                newCanvas.on('object:added', () => saveHistory(newCanvas));
-                newCanvas.on('object:removed', () => saveHistory(newCanvas));
+                newCanvas.on('object:modified', () => { saveHistory(newCanvas); updateLayers(newCanvas); });
+                newCanvas.on('object:added', () => { saveHistory(newCanvas); updateLayers(newCanvas); });
+                newCanvas.on('object:removed', () => { saveHistory(newCanvas); updateLayers(newCanvas); });
 
-                // Initial history save
+                // Also update on layout changes that might not trigger history but affect layers (e.g. z-index)
+                // Actually object:modified covers most, but we can call it manually on handleLayer
+
+                // Initial history save & layer update
                 saveHistory(newCanvas);
+                updateLayers(newCanvas);
 
             } catch (err: any) {
                 console.warn(`Init attempt ${retryCount + 1} failed:`, err.message);
@@ -864,116 +880,269 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                 </div>
             </div>
 
-            {/* Left Sidebar - Tools */}
-            <div className="absolute left-6 top-24 bottom-6 w-64 glass border-white/10 rounded-2xl flex flex-col gap-4 overflow-hidden z-20 shadow-2xl shadow-black/50 backdrop-blur-xl bg-black/40">
-                <div className="p-4 border-b border-white/5 bg-white/5">
-                    <Button
-                        className={`w-full ${isPreview ? 'bg-orange-500 hover:bg-orange-600' : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/20'} transition-all`}
-                        onClick={togglePreview}
-                    >
-                        {isPreview ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
-                        {isPreview ? 'Exit Preview' : 'Live Preview'}
-                    </Button>
-                    {isPreview && <p className="text-[10px] text-muted-foreground text-center mt-2 animate-pulse">Editing locked</p>}
-                </div>
+            {/* Left Sidebar - Tools & Layers */}
+            <div className="absolute left-6 top-24 bottom-6 w-72 glass border-white/10 rounded-2xl flex flex-col gap-0 overflow-hidden z-20 shadow-2xl shadow-black/50 backdrop-blur-xl bg-black/40">
 
-                <div className={`p-4 space-y-6 overflow-y-auto custom-scrollbar ${isPreview ? 'opacity-50 pointer-events-none' : ''}`}>
+                <Tabs value={activeLeftTab} onValueChange={setActiveLeftTab} className="h-full flex flex-col">
+                    <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col gap-3">
+                        <TabsList className="grid w-full grid-cols-2 bg-black/40 border border-white/10 rounded-lg h-9 p-0.5">
+                            <TabsTrigger value="assets" className="text-xs rounded-md data-[state=active]:bg-primary data-[state=active]:text-white">Assets</TabsTrigger>
+                            <TabsTrigger value="layers" className="text-xs rounded-md data-[state=active]:bg-primary data-[state=active]:text-white">Layers ({layers.length})</TabsTrigger>
+                        </TabsList>
 
-                    {/* Elements */}
-                    <div className="space-y-3">
-                        <Button variant="outline" size="sm" onClick={addText} className="w-fit h-9 px-4 justify-start border-white/10 hover:bg-white/10 hover:text-white dark-glass rounded-full">
-                            <Type className="w-4 h-4 mr-2 text-primary" /> Text
-                        </Button>
+                        {activeLeftTab === 'assets' && (
+                            <Button
+                                className={`w-full ${isPreview ? 'bg-orange-500 hover:bg-orange-600' : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/20'} transition-all h-8 text-xs`}
+                                onClick={togglePreview}
+                            >
+                                {isPreview ? <EyeOff className="w-3.5 h-3.5 mr-2" /> : <Eye className="w-3.5 h-3.5 mr-2" />}
+                                {isPreview ? 'Exit Preview' : 'Live Preview'}
+                            </Button>
+                        )}
+                        {isPreview && activeLeftTab === 'assets' && <p className="text-[10px] text-muted-foreground text-center animate-pulse">Editing locked</p>}
                     </div>
 
-                    {/* Media */}
-                    <div className="space-y-3">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Media</Label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="relative">
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleImageUpload}
-                                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
-                                />
-                                <Button variant="outline" className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
-                                    <ImageIcon className="w-4 h-4" /> Image
+                    {/* Assets Tab Content */}
+                    <TabsContent value="assets" className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6 mt-0 data-[state=inactive]:hidden">
+                        <div className={`space-y-6 ${isPreview ? 'opacity-50 pointer-events-none' : ''}`}>
+                            {/* Elements */}
+                            <div className="space-y-3">
+                                <Button variant="outline" size="sm" onClick={addText} className="w-fit h-9 px-4 justify-start border-white/10 hover:bg-white/10 hover:text-white dark-glass rounded-full">
+                                    <Type className="w-4 h-4 mr-2 text-primary" /> Text
                                 </Button>
                             </div>
-                            <Button variant="outline" onClick={addImagePlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
-                                <Square className="w-4 h-4" /> Rect Photo
-                            </Button>
-                            <Button variant="outline" onClick={addCirclePhotoPlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2 col-span-2">
-                                <Circle className="w-4 h-4" /> Circle Photo
-                            </Button>
-                        </div>
-                    </div>
 
-                    {/* Shapes */}
-                    <div className="space-y-3">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Shapes</Label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <Button variant="outline" onClick={() => addShape('rect')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
-                                <Square className="w-4 h-4" /> Rect
-                            </Button>
-                            <Button variant="outline" onClick={() => addShape('circle')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
-                                <Circle className="w-4 h-4" /> Circle
-                            </Button>
-                        </div>
-                    </div>
+                            {/* Media */}
+                            <div className="space-y-3">
+                                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Media</Label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageUpload}
+                                            className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                                        />
+                                        <Button variant="outline" className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                            <ImageIcon className="w-4 h-4" /> Image
+                                        </Button>
+                                    </div>
+                                    <Button variant="outline" onClick={addImagePlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                        <Square className="w-4 h-4" /> Rect Photo
+                                    </Button>
+                                    <Button variant="outline" onClick={addCirclePhotoPlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2 col-span-2">
+                                        <Circle className="w-4 h-4" /> Circle Photo
+                                    </Button>
+                                </div>
+                            </div>
 
-                    {/* Dynamic Data */}
-                    <div className="space-y-3">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Data Fields</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch'].map(field => (
-                                <Button
-                                    key={field}
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => addPlaceholder(field)}
-                                    className="justify-center font-mono text-[10px] h-9 px-1 truncate border-white/10 bg-white/5 hover:bg-primary/20 hover:text-primary hover:border-primary/50 transition-all text-muted-foreground rounded-full"
-                                    title={`Add {{${field}}}`}
-                                >
-                                    {`{{${field}}}`}
-                                </Button>
-                            ))}
+                            {/* Shapes */}
+                            <div className="space-y-3">
+                                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Shapes</Label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Button variant="outline" onClick={() => addShape('rect')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                        <Square className="w-4 h-4" /> Rect
+                                    </Button>
+                                    <Button variant="outline" onClick={() => addShape('circle')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                        <Circle className="w-4 h-4" /> Circle
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* Dynamic Data */}
+                            <div className="space-y-3">
+                                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Data Fields</Label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch'].map(field => (
+                                        <Button
+                                            key={field}
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => addPlaceholder(field)}
+                                            className="justify-center font-mono text-[10px] h-9 px-1 truncate border-white/10 bg-white/5 hover:bg-primary/20 hover:text-primary hover:border-primary/50 transition-all text-muted-foreground rounded-full"
+                                            title={`Add {{${field}}}`}
+                                        >
+                                            {`{{${field}}}`}
+                                        </Button>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 mt-4 pt-2 border-t border-white/5">
+                                    <Input
+                                        placeholder="custom_field"
+                                        className="h-9 text-xs font-mono bg-black/40 border-white/10 focus-visible:ring-primary/50"
+                                        id="custom-field-input"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="h-9 px-4 font-bold"
+                                        onClick={() => {
+                                            const input = document.getElementById('custom-field-input') as HTMLInputElement;
+                                            if (input && input.value) {
+                                                addPlaceholder(input.value);
+                                                input.value = '';
+                                            }
+                                        }}
+                                    >
+                                        Add
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex gap-2 mt-4 pt-2 border-t border-white/5">
-                            <Input
-                                placeholder="custom_field"
-                                className="h-9 text-xs font-mono bg-black/40 border-white/10 focus-visible:ring-primary/50"
-                                id="custom-field-input"
-                            />
-                            <Button
-                                size="sm"
-                                variant="secondary"
-                                className="h-9 px-4 font-bold"
-                                onClick={() => {
-                                    const input = document.getElementById('custom-field-input') as HTMLInputElement;
-                                    if (input && input.value) {
-                                        addPlaceholder(input.value);
-                                        input.value = '';
+                    </TabsContent>
+
+                    {/* Layers Tab Content */}
+                    <TabsContent value="layers" className="flex-1 overflow-y-auto custom-scrollbar p-0 space-y-1 mt-0 data-[state=inactive]:hidden bg-inherit">
+                        {layers.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 text-xs gap-2">
+                                <Layers className="w-8 h-8 opacity-50" />
+                                <span>No layers yet</span>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-white/5">
+                                {layers.map((obj, i) => {
+                                    // Determine icon and label
+                                    let Icon = Square;
+                                    let label = "Object";
+
+                                    if (obj.type === 'i-text' || obj.type === 'text') {
+                                        Icon = Type;
+                                        label = (obj as any).text?.substring(0, 15) || "Text";
+                                    } else if (obj.type === 'image') {
+                                        Icon = ImageIcon;
+                                        label = "Image";
+                                    } else if (obj.type === 'rect') {
+                                        Icon = Square;
+                                        label = "Rectangle";
+                                    } else if (obj.type === 'circle') {
+                                        Icon = Circle;
+                                        label = "Circle";
+                                    } else if (obj.type === 'group') {
+                                        if ((obj as any).isPhotoPlaceholder) {
+                                            Icon = ImageIcon;
+                                            label = "Photo Placeholder";
+                                        }
                                     }
-                                }}
-                            >
-                                Add
-                            </Button>
-                        </div>
-                    </div>
-                </div>
+
+                                    const isSelected = selectedObject === obj;
+                                    const isLocked = !obj.selectable; // Consistent check based on selectable
+                                    const isVisible = obj.visible;
+
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={`flex items-center gap-2 p-3 text-sm hover:bg-white/5 transition-colors cursor-pointer group ${isSelected ? 'bg-primary/10 border-l-2 border-primary' : 'border-l-2 border-transparent'}`}
+                                            onClick={() => {
+                                                if (canvas) {
+                                                    canvas.setActiveObject(obj);
+                                                    canvas.renderAll();
+                                                    // updateLayers(canvas);
+                                                }
+                                            }}
+                                        >
+                                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                                            <span className={`flex-1 truncate text-xs font-medium ${isLocked ? 'text-muted-foreground' : 'text-white/80'}`}>{label}</span>
+
+                                            <div className="flex items-center gap-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {/* Visibility Toggle */}
+                                                <Button
+                                                    size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-white"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (canvas) {
+                                                            const newVis = !obj.visible;
+                                                            obj.set('visible', newVis);
+                                                            if (!newVis) {
+                                                                canvas.discardActiveObject(); // Deselect if hiding
+                                                                setSelectedObject(null);
+                                                            }
+                                                            canvas.renderAll();
+                                                            updateLayers(canvas);
+                                                        }
+                                                    }}
+                                                >
+                                                    {isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 text-muted-foreground/50" />}
+                                                </Button>
+
+                                                {/* Lock Toggle */}
+                                                <Button
+                                                    size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-white"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (canvas) {
+                                                            const currentlyLocked = !obj.selectable;
+                                                            obj.set({
+                                                                selectable: !currentlyLocked,
+                                                                evented: !currentlyLocked,
+                                                                lockMovementX: !currentlyLocked,
+                                                                lockMovementY: !currentlyLocked,
+                                                                lockRotation: !currentlyLocked,
+                                                                lockScalingX: !currentlyLocked,
+                                                                lockScalingY: !currentlyLocked,
+                                                            });
+                                                            // If we just locked it, we should probably deselect it if it was selected
+                                                            if (!currentlyLocked) {
+                                                                canvas.discardActiveObject();
+                                                                setSelectedObject(null);
+                                                            }
+                                                            canvas.renderAll();
+                                                            updateLayers(canvas);
+                                                        }
+                                                    }}
+                                                >
+                                                    {isLocked ? <Lock className="w-3 h-3 text-muted-foreground hover:text-orange-400" /> : <Unlock className="w-3 h-3 opacity-50 hover:opacity-100" />}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </TabsContent>
+                </Tabs>
             </div>
 
             {/* Right Sidebar - Properties */}
             <div className="absolute right-6 top-24 bottom-6 w-72 glass border-white/10 rounded-2xl flex flex-col z-20 shadow-2xl shadow-black/50 backdrop-blur-xl bg-black/40 overflow-hidden">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <h3 className="font-semibold text-sm text-white">Properties</h3>
-                    {selectedObject && (
-                        <Button variant="ghost" size="icon" onClick={deleteSelected} className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-1">
+                        {selectedObject && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                    if (canvas && selectedObject) {
+                                        // Lock logic for the main button - actually if it's selected it's UNLOCKED.
+                                        // So clicking this should LOCK it.
+                                        const obj = selectedObject;
+                                        obj.set({
+                                            selectable: false,
+                                            evented: false,
+                                            lockMovementX: true,
+                                            lockMovementY: true,
+                                            lockRotation: true,
+                                            lockScalingX: true,
+                                            lockScalingY: true,
+                                        });
+                                        canvas.discardActiveObject();
+                                        setSelectedObject(null);
+                                        canvas.renderAll();
+                                        updateLayers(canvas);
+                                    }
+                                }}
+                                className="h-8 w-8 text-muted-foreground hover:text-orange-400 hover:bg-orange-400/10"
+                                title="Lock Object"
+                            >
+                                <Lock className="w-4 h-4" />
+                            </Button>
+                        )}
+                        {selectedObject && (
+                            <Button variant="ghost" size="icon" onClick={deleteSelected} className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
