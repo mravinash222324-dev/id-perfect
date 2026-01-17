@@ -115,25 +115,25 @@ export default function Auth() {
         <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]" />
       </div>
 
-      <div className="w-full max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-center gap-12 p-6 z-10">
+      <div className="w-full max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-12 p-4 lg:p-6 z-10 transition-all">
 
         {/* Branding Section */}
         <motion.div
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="flex-1 text-center lg:text-left space-y-8"
+          className="flex-1 text-center lg:text-left space-y-6 lg:space-y-8 mt-4 lg:mt-0"
         >
           <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
             <Sparkles className="h-4 w-4 text-primary animate-pulse" />
-            <span className="text-sm font-medium text-white/80">The Future of ID Management</span>
+            <span className="text-xs lg:text-sm font-medium text-white/80">The Future of ID Management</span>
           </div>
 
           <div className="space-y-4">
-            <h1 className="text-5xl lg:text-7xl font-bold tracking-tight text-white leading-[1.1]">
+            <h1 className="text-4xl md:text-5xl lg:text-7xl font-bold tracking-tight text-white leading-[1.1]">
               RAZ <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-accent to-secondary animate-gradient-x">ID</span>
             </h1>
-            <p className="text-xl text-muted-foreground max-w-lg mx-auto lg:mx-0 leading-relaxed">
+            <p className="text-lg md:text-xl text-muted-foreground max-w-lg mx-auto lg:mx-0 leading-relaxed">
               Create, manage, and print professional identity cards with an advanced glass-morphic design studio.
             </p>
           </div>
