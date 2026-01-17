@@ -8,68 +8,82 @@
   :root {
     /* DEFAULT to DARK / FUTURISTIC THEME */
 
-    /* Deep Space Background */
-    --background: 240 10% 4%;
-    /* #09090b - Very dark */
-    --foreground: 0 0% 98%;
+    /* Deep Space Background - Richer, darker blue-black */
+    --background: 240 15% 3%;
+    /* #060609 */
+    --foreground: 210 20% 98%;
 
-    /* Glass Panels */
+    /* Glass Panels - Slightly more opaque for better contrast but keeping the glass feel */
     --card: 240 10% 4%;
-    --card-foreground: 0 0% 98%;
+    --card-foreground: 210 20% 98%;
 
-    --popover: 240 10% 4%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 240 15% 5%;
+    --popover-foreground: 210 20% 98%;
 
-    /* Neon Accents */
-    --primary: 263 90% 65%;
-    /* Electric Purple */
-    --primary-foreground: 0 0% 100%;
+    /* Neon Accents - Adjusted for "Electric" feel */
+    --primary: 265 85% 65%;
+    /* Electric Violet */
+    --primary-foreground: 210 20% 98%;
 
-    --secondary: 190 90% 50%;
+    --secondary: 180 85% 55%;
     /* Cyan Neon */
-    --secondary-foreground: 240 10% 4%;
+    --secondary-foreground: 240 15% 3%;
 
-    --muted: 240 4% 16%;
+    --muted: 240 6% 12%;
     --muted-foreground: 240 5% 65%;
 
-    --accent: 263 90% 65%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 280 85% 60%;
+    --accent-foreground: 210 20% 98%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 210 20% 98%;
 
-    --border: 240 4% 25%;
-    /* Subtle borders for glass */
-    --input: 240 4% 16%;
-    --ring: 263 90% 65%;
+    /* Borders - Subtle glass edges */
+    --border: 240 6% 16%;
+    --input: 240 6% 12%;
+    --ring: 265 85% 65%;
 
     --radius: 1rem;
-    /* Rounder corners */
 
-    /* Sidebar - Transparent/Glass */
-    --sidebar-background: 240 10% 4%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 263 90% 65%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4% 16%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 4% 20%;
-    --sidebar-ring: 263 90% 65%;
+    /* Sidebar - Deep Glass */
+    --sidebar-background: 240 15% 3%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-primary: 265 85% 65%;
+    --sidebar-primary-foreground: 210 20% 98%;
+    --sidebar-accent: 240 6% 12%;
+    --sidebar-accent-foreground: 210 20% 98%;
+    --sidebar-border: 240 6% 16%;
+    --sidebar-ring: 265 85% 65%;
 
-    /* Futuristic Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(263 90% 65%) 0%, hsl(190 90% 50%) 100%);
-    --gradient-glow: radial-gradient(circle at center, hsl(263 90% 65% / 0.15) 0%, transparent 70%);
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(265 85% 65%) 0%, hsl(180 85% 55%) 100%);
+    --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
 
-    /* Shadows */
-    --shadow-glow: 0 0 20px hsl(263 90% 65% / 0.3);
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    /* Shadows & Glows */
+    --shadow-glow: 0 0 40px -10px hsl(265 85% 65% / 0.4);
+    --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   }
 
-  /* Force Dark Mode aesthetic everywhere */
   .dark {
-    /* Same as root */
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
+    --background: 240 15% 3%;
+    --foreground: 210 20% 98%;
+    --card: 240 10% 4%;
+    --card-foreground: 210 20% 98%;
+    --popover: 240 15% 5%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 265 85% 65%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 180 85% 55%;
+    --secondary-foreground: 240 15% 3%;
+    --muted: 240 6% 12%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 280 85% 60%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 240 6% 16%;
+    --input: 240 6% 12%;
+    --ring: 265 85% 65%;
   }
 }
 
@@ -80,33 +94,79 @@
 
   html {
     font-family: 'Outfit', 'Inter', system-ui, sans-serif;
-    /* Futuristic Font */
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary;
     background-image:
-      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E"),
-      radial-gradient(circle at 15% 50%, hsl(263 90% 65% / 0.12), transparent 30%),
-      radial-gradient(circle at 85% 30%, hsl(190 90% 50% / 0.12), transparent 30%);
+      radial-gradient(circle at 15% 50%, hsl(265 85% 65% / 0.08), transparent 45%),
+      radial-gradient(circle at 85% 30%, hsl(180 85% 55% / 0.08), transparent 45%);
     background-attachment: fixed;
   }
 }
 
 @layer utilities {
+
+  /* Ultra Premium Glass */
   .glass {
-    @apply bg-black/40 backdrop-blur-2xl backdrop-saturate-150 border border-white/10 shadow-2xl;
+    @apply bg-[#0f0f13]/60 backdrop-blur-2xl border border-white/5 shadow-2xl;
+    box-shadow:
+      0 4px 6px -1px rgba(0, 0, 0, 0.1),
+      0 2px 4px -1px rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   }
 
   .glass-card {
-    @apply bg-white/5 backdrop-blur-3xl backdrop-saturate-150 border border-white/10 shadow-xl;
+    @apply bg-card/40 backdrop-blur-xl border border-white/5 shadow-xl transition-all duration-300;
   }
 
+  .glass-card:hover {
+    @apply bg-card/60 border-white/10 shadow-glow cursor-pointer translate-y-[-2px];
+  }
+
+  .glass-panel {
+    @apply bg-[#0A0A0E]/80 backdrop-blur-3xl border border-white/5 shadow-2xl;
+  }
+
+  /* Text Effects */
   .text-glow {
-    text-shadow: 0 0 10px hsl(var(--primary) / 0.5);
+    text-shadow: 0 0 20px hsl(var(--primary) / 0.5);
   }
 
-  .border-glow {
-    box-shadow: 0 0 10px hsl(var(--primary) / 0.3);
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary;
+  }
+
+  /* Animations */
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0% {
+      transform: translateY(0px);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+
+    100% {
+      transform: translateY(0px);
+    }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
   }
 }

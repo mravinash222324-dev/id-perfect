@@ -156,8 +156,6 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                             textAlign: textObj.textAlign,
                             data: (textObj as any).data,
                             splitByGrapheme: false, // Normal word wrap
-                            // Ensure width is sufficient for wrapping if needed?
-                            // If we use current width, it might be tight.
                         });
                         replacements.push({ old: obj, new: textbox });
                         targetObj = textbox;
@@ -184,6 +182,27 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                     canvas.add(rep.new);
                 });
 
+                // Attach Event Listeners for 2-Way Sync
+                canvas.on('text:changed', (e) => {
+                    const obj = e.target;
+                    if (!obj) return;
+
+                    // Identify the key mapped to this object
+                    const key = (obj as any).data?.key || (obj as any).key;
+
+                    // Or try to infer from text {{key}} pattern if still present (unlikely after replace)
+                    if (key && formData.hasOwnProperty(key)) {
+                        // Update form data without triggering the useEffect loop endlessly
+                        // We need a way to setFormData without triggering re-render of canvas text
+                        // But setFormData WILL trigger useEffect.
+                        // We can add a flag or check equality in useEffect.
+                        setFormData((prev: any) => ({
+                            ...prev,
+                            [key]: (obj as any).text
+                        }));
+                    }
+                });
+
                 canvas.renderAll();
             } catch (e) {
                 console.error("Error loading design", e);
@@ -206,7 +225,7 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
         fabricCanvasRef.current.add(textbox);
         fabricCanvasRef.current.setActiveObject(textbox);
         fabricCanvasRef.current.requestRenderAll();
-        toast.success("Added new text box");
+        // toast.success("Added new text box"); // Remove toast to avoid spam
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -313,9 +332,46 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
         }
     };
 
+    // Zoom Wheel Handler (Touchpad support) - Native Listener for Passive control
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault(); // PREVENT BROWSER ZOOM
+                e.stopPropagation();
+
+                const delta = e.deltaY;
+                const sensitivity = 0.005;
+                const zoomStep = delta * sensitivity;
+
+                setZoomLevel(prev => {
+                    const newZoom = prev - zoomStep;
+                    return Math.min(Math.max(newZoom, 0.1), 3.0);
+                });
+            }
+        };
+
+        // Must be passive: false to allow preventDefault
+        container.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+            container.removeEventListener('wheel', handleWheel);
+        };
+    }, [open]); // Re-attach when dialog opens
+
+    const formatLabel = (key: string) => {
+        return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    };
+
+    const ignoredKeys = ['id', 'created_at', 'school_id', 'print_batch_id', 'design_overrides', 'photo_url', 'verification_status', 'address_font_size', 'updated_at', 'submitted_at'];
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-[95vw] h-[95vh] flex flex-col p-4">
+            <DialogContent className="max-w-[95vw] h-[95vh] flex flex-col p-4 outline-none">
                 <DialogHeader>
                     <DialogTitle>Edit Student & Customize Layout</DialogTitle>
                 </DialogHeader>
@@ -323,7 +379,10 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                 <div className="flex flex-1 gap-6 overflow-hidden min-h-0">
 
                     {/* Preview - Interactive Canvas (Now Left/Main) */}
-                    <div className="flex-1 bg-black/20 rounded-xl p-6 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden backdrop-blur-sm">
+                    <div
+                        ref={containerRef}
+                        className="flex-1 bg-black/20 rounded-xl p-6 border border-white/10 flex flex-col items-center justify-center relative overflow-hidden backdrop-blur-sm"
+                    >
                         <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10 pointer-events-none">
                             <div className="glass p-2 rounded-xl shadow-sm pointer-events-auto flex items-center gap-2 border border-white/10">
                                 <strong>Tools:</strong>
@@ -335,65 +394,50 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                                 <Button size="sm" variant="outline" className="h-7 text-xs ml-2" onClick={addText}>+ Text</Button>
                             </div>
                             <div className="flex gap-2 pointer-events-auto">
-                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.max(0.2, zoomLevel - 0.1))} className="shadow-lg">-</Button>
+                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.max(0.1, zoomLevel - 0.1))} className="shadow-lg">-</Button>
                                 <span className="glass px-2 py-1 rounded-md text-sm min-w-[3rem] text-center flex items-center justify-center shadow-lg border border-white/10 font-mono">
                                     {Math.round(zoomLevel * 100)}%
                                 </span>
-                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.min(2.0, zoomLevel + 0.1))} className="shadow-lg">+</Button>
+                                <Button size="sm" variant="secondary" onClick={() => setZoomLevel(Math.min(3.0, zoomLevel + 0.1))} className="shadow-lg">+</Button>
                                 <Button size="sm" variant="outline" onClick={() => setZoomLevel(0.6)} className="shadow-lg glass border-white/10 hover:bg-white/10">Reset</Button>
                             </div>
                         </div>
-                        <div className="w-full h-full overflow-auto flex items-center justify-center">
+                        <div className="w-full h-full overflow-auto flex items-center justify-center custom-scrollbar">
                             {/* Wrapper to scale canvas to fit screen if needed */}
-                            <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center', transition: 'transform 0.1s ease-out' }}>
+                            <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center', transition: 'transform 0.05s ease-out' }}>
                                 <canvas ref={canvasRef} />
                             </div>
                         </div>
                     </div>
 
-                    {/* Form - Scrollable (Now Right/Sidebar) */}
-                    <div className="w-[350px] space-y-4 overflow-y-auto pl-2 border-l">
+                    {/* Form - Scrollable (Right Panel) */}
+                    <div className="w-[350px] space-y-4 overflow-y-auto pl-2 border-l border-white/10 pr-2">
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-muted-foreground uppercase">Student Details</h3>
-                            <div className="space-y-2">
-                                <Label>Name</Label>
-                                <Input name="name" value={formData.name || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Roll Number</Label>
-                                <Input name="roll_number" value={formData.roll_number || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Class</Label>
-                                <Input name="class" value={formData.class || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Department</Label>
-                                <Input name="department" value={formData.department || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Phone</Label>
-                                <Input name="phone" value={formData.phone || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Blood Group</Label>
-                                <Input name="blood_group" value={formData.blood_group || ''} onChange={handleChange} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Address</Label>
-                                <Textarea name="address" value={formData.address || ''} onChange={handleChange} className="min-h-[80px]" />
-                            </div>
+                            {Object.keys(formData).map((key) => {
+                                if (ignoredKeys.includes(key)) return null;
+                                return (
+                                    <div key={key} className="space-y-2">
+                                        <Label>{formatLabel(key)}</Label>
+                                        {key === 'address' ? (
+                                            <Textarea name={key} value={formData[key] || ''} onChange={handleChange} className="min-h-[80px]" />
+                                        ) : (
+                                            <Input name={key} value={formData[key] || ''} onChange={handleChange} />
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
 
-                        <div className="space-y-2 pt-4 border-t">
+                        <div className="space-y-2 pt-4 border-t border-white/10">
                             <Label>Photo</Label>
                             <div className="flex items-center gap-4">
-                                <div className="h-16 w-16 rounded bg-muted flex items-center justify-center overflow-hidden border">
+                                <div className="h-16 w-16 rounded bg-muted flex items-center justify-center overflow-hidden border border-white/10">
                                     {formData.photo_url ? (
                                         <img src={formData.photo_url} className="w-full h-full object-cover" />
                                     ) : <CreditCard className="h-6 w-6 text-muted-foreground" />}
                                 </div>
-                                <Input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={loading} />
+                                <Input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={loading} className="text-sm cursor-pointer" />
                             </div>
                         </div>
                     </div>

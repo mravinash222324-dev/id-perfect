@@ -169,12 +169,12 @@ export default function UploadData() {
       const values = lines[i].match(/(?:\"([^\"]*)\")|([^,]+)|(?<=,)(?=,)|^(?=,)|(?<=,)$/g) || [];
       // Clean up values: remove quotes if present, trim
       const cleanedValues = values.map(v => {
-          if (!v) return '';
-          const trimmed = v.trim();
-          if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-              return trimmed.slice(1, -1).trim();
-          }
-          return trimmed.replace(/^,|,$/g, '').trim(); // Remove leading/trailing commas from split artifacts if any
+        if (!v) return '';
+        const trimmed = v.trim();
+        if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+          return trimmed.slice(1, -1).trim();
+        }
+        return trimmed.replace(/^,|,$/g, '').trim(); // Remove leading/trailing commas from split artifacts if any
       });
 
       // The above regex is tricky. Let's use a simpler split approach for robustness
@@ -182,14 +182,14 @@ export default function UploadData() {
       const matches = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
       // Fallback if match fails (e.g. empty fields)
       let rowValues: string[] = [];
-      
+
       if (matches) {
-         rowValues = matches.map(m => m.replace(/^"|"$/g, '').trim());
+        rowValues = matches.map(m => m.replace(/^"|"$/g, '').trim());
       } else {
-         // Fallback to simple split if regex fails completely (unlikely for valid CSVs but safe)
-         rowValues = lines[i].split(',').map(v => v.trim());
+        // Fallback to simple split if regex fails completely (unlikely for valid CSVs but safe)
+        rowValues = lines[i].split(',').map(v => v.trim());
       }
-      
+
       // Fix: The regex above might miss empty fields between commas (e.g. ,,).
       // Better approach:
       const rowData = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
@@ -310,8 +310,8 @@ export default function UploadData() {
   const handleBulkPhotoUpload = async () => {
     console.log('[BatchUpload] Button Clicked. Files selected:', photoFiles.length);
     if (photoFiles.length === 0) {
-        console.warn('[BatchUpload] No files selected.');
-        return;
+      console.warn('[BatchUpload] No files selected.');
+      return;
     }
 
     setPhotoUploadProgress({ processed: 0, total: photoFiles.length, success: 0, failed: 0 });
@@ -354,7 +354,7 @@ export default function UploadData() {
       if (s.roll_number) rollMap.set(String(s.roll_number).toLowerCase().trim(), s.id);
       if (s.photo_ref) refMap.set(String(s.photo_ref).toLowerCase().trim(), s.id);
     });
-    
+
     console.log('[BatchUpload] RefMap Keys (Sample):', Array.from(refMap.keys()).slice(0, 10));
 
     let successCount = 0;
@@ -547,7 +547,7 @@ export default function UploadData() {
           <div className="flex items-center gap-3">
             <Button
               onClick={downloadTemplate}
-              className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
+              className="gap-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/20 hover:shadow-[0_0_15px_rgba(124,58,237,0.3)] transition-all duration-300"
             >
               <Download className="h-4 w-4" />
               Download Smart Template
@@ -555,7 +555,7 @@ export default function UploadData() {
             <Button
               variant="outline"
               onClick={handleSignOut}
-              className="gap-2 border-slate-200 text-slate-600 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors shadow-sm"
+              className="gap-2 border-white/10 bg-white/5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-colors"
             >
               <LogOut className="h-4 w-4" />
               Sign Out
@@ -571,14 +571,14 @@ export default function UploadData() {
             <div className="grid md:grid-cols-2 gap-6">
 
               {/* CSV Upload Card */}
-              <Card className="relative overflow-hidden border-none shadow-2xl bg-white/80 backdrop-blur-xl hover:shadow-3xl transition-all duration-300 group">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-indigo-50/30 to-purple-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <Card className="relative overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl hover:shadow-primary/20 transition-all duration-300 group">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <CardHeader className="relative z-10">
-                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                    <FileSpreadsheet className="h-6 w-6 text-white" />
+                  <div className="h-12 w-12 rounded-2xl bg-primary/20 border border-primary/20 flex items-center justify-center mb-4 shadow-lg shadow-primary/10 group-hover:scale-110 transition-transform duration-300">
+                    <FileSpreadsheet className="h-6 w-6 text-primary" />
                   </div>
-                  <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">Import CSV Batch</CardTitle>
-                  <CardDescription className="text-gray-500">
+                  <CardTitle className="text-xl font-bold text-white">Import CSV Batch</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Upload your student data (CSV).
                   </CardDescription>
                 </CardHeader>
@@ -587,22 +587,23 @@ export default function UploadData() {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
+                    onClick={() => document.getElementById('file-upload')?.click()}
                     className={cn(
                       'relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 cursor-pointer group/drop',
                       isDragging
-                        ? 'border-indigo-500 bg-indigo-50/50 scale-[1.02]'
-                        : 'border-slate-200 hover:border-indigo-400 hover:bg-slate-50/50',
-                      file && 'border-emerald-500 bg-emerald-50/30'
+                        ? 'border-primary bg-primary/10 scale-[1.02]'
+                        : 'border-white/10 hover:border-primary/50 hover:bg-white/5',
+                      file && 'border-emerald-500/50 bg-emerald-500/10'
                     )}
                   >
                     {file ? (
                       <div className="space-y-4 animate-in zoom-in-50 duration-300">
-                        <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-full bg-emerald-100 shadow-inner">
-                          <CheckCircle className="h-8 w-8 text-emerald-600" />
+                        <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-full bg-emerald-500/20 shadow-inner border border-emerald-500/30">
+                          <CheckCircle className="h-8 w-8 text-emerald-400" />
                         </div>
                         <div>
-                          <p className="font-semibold text-lg text-slate-800">{file.name}</p>
-                          <p className="text-sm text-slate-500">{(file.size / 1024).toFixed(2)} KB</p>
+                          <p className="font-semibold text-lg text-white">{file.name}</p>
+                          <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(2)} KB</p>
                         </div>
                         <Button
                           variant="ghost"
@@ -613,7 +614,7 @@ export default function UploadData() {
                             setUploadResult(null);
                             setBatchName('');
                           }}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          className="text-red-400 hover:text-red-300 hover:bg-red-950/30"
                         >
                           Cancel
                         </Button>
@@ -622,15 +623,15 @@ export default function UploadData() {
                       <div className="space-y-4">
                         <div className="h-20 w-full flex items-center justify-center">
                           <div className="relative">
-                            <div className="absolute inset-0 bg-indigo-200 rounded-full blur-xl opacity-20 animate-pulse" />
-                            <Upload className="relative h-10 w-10 text-indigo-400 group-hover/drop:text-indigo-600 transition-colors duration-300" />
+                            <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl opacity-20 animate-pulse" />
+                            <Upload className="relative h-10 w-10 text-primary/70 group-hover/drop:text-primary transition-colors duration-300" />
                           </div>
                         </div>
                         <div>
-                          <p className="font-medium text-slate-700">
-                            Drag & drop or <span className="text-indigo-600 font-semibold underlin-offset-4 hover:underline">browse</span>
+                          <p className="font-medium text-slate-300">
+                            Drag & drop or <span className="text-primary font-semibold hover:underline">browse</span>
                           </p>
-                          <p className="text-xs text-slate-400 mt-1">Supports .csv files</p>
+                          <p className="text-xs text-muted-foreground mt-1">Supports .csv files</p>
                         </div>
                         <Input
                           id="file-upload"
@@ -645,18 +646,18 @@ export default function UploadData() {
 
                   {file && (
                     <div className="mt-6 space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                      <Label htmlFor="batch-name" className="text-sm font-semibold text-slate-700">Batch Name</Label>
+                      <Label htmlFor="batch-name" className="text-sm font-semibold text-slate-300">Batch Name</Label>
                       <Input
                         id="batch-name"
                         value={batchName}
                         onChange={(e) => setBatchName(e.target.value)}
                         placeholder="e.g. Class 10 - 2024"
-                        className="h-11 border-slate-200 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
+                        className="h-11 bg-black/20 border-white/10 text-white focus:ring-primary/50 focus:border-primary/50 placeholder:text-muted-foreground/50 transition-all text-sm"
                       />
                       <Button
                         onClick={handleUpload}
                         disabled={isUploading || !batchName.trim()}
-                        className="w-full h-11 bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-lg disabled:opacity-50 hover:from-black hover:to-slate-900 transition-all rounded-lg font-medium"
+                        className="w-full h-11 bg-gradient-to-r from-primary to-violet-600 text-white shadow-lg disabled:opacity-50 hover:shadow-primary/20 transition-all rounded-lg font-medium"
                       >
                         {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Start Import"}
                       </Button>
@@ -666,19 +667,19 @@ export default function UploadData() {
               </Card>
 
               {/* Photo Upload Card */}
-              <Card className="relative overflow-hidden border-none shadow-2xl bg-white/80 backdrop-blur-xl hover:shadow-3xl transition-all duration-300 group">
-                <div className="absolute inset-0 bg-gradient-to-bl from-pink-50/50 via-rose-50/30 to-orange-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <Card className="relative overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl hover:shadow-pink-500/20 transition-all duration-300 group">
+                <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <CardHeader className="relative z-10">
-                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                    <Upload className="h-6 w-6 text-white" />
+                  <div className="h-12 w-12 rounded-2xl bg-pink-500/20 border border-pink-500/20 flex items-center justify-center mb-4 shadow-lg shadow-pink-500/10 group-hover:scale-110 transition-transform duration-300">
+                    <Upload className="h-6 w-6 text-pink-400" />
                   </div>
-                  <CardTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">Batch Photos</CardTitle>
-                  <CardDescription className="text-gray-500">
+                  <CardTitle className="text-xl font-bold text-white">Batch Photos</CardTitle>
+                  <CardDescription className="text-muted-foreground">
                     Auto-match & upload student photos.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 relative z-10">
-                  <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-pink-300 hover:bg-pink-50/30 transition-all duration-300 relative group/photo">
+                  <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-pink-500/50 hover:bg-pink-500/5 transition-all duration-300 relative group/photo">
                     <input
                       type="file"
                       id="bulk-photos"
@@ -687,19 +688,19 @@ export default function UploadData() {
                       className="hidden"
                       onChange={handlePhotoSelect}
                     />
-                    <Label htmlFor="bulk-photos" className="cursor-pointer block">
+                    <Label htmlFor="bulk-photos" className="cursor-pointer block w-full h-full">
                       <div className="flex flex-col items-center gap-3">
                         {photoFiles.length > 0 ? (
                           <>
-                            <CheckCircle className="h-10 w-10 text-emerald-500 drop-shadow-md" />
-                            <span className="font-semibold text-emerald-700">{photoFiles.length} Photos Selected</span>
+                            <CheckCircle className="h-10 w-10 text-emerald-400 drop-shadow-md" />
+                            <span className="font-semibold text-emerald-400">{photoFiles.length} Photos Selected</span>
                           </>
                         ) : (
                           <>
-                            <div className="p-3 bg-rose-50 rounded-full group-hover/photo:bg-white transition-colors">
-                              <Upload className="h-6 w-6 text-rose-500" />
+                            <div className="p-3 bg-pink-500/10 rounded-full group-hover/photo:bg-pink-500/20 transition-colors">
+                              <Upload className="h-6 w-6 text-pink-400" />
                             </div>
-                            <span className="text-sm font-medium text-slate-600">Select Folder</span>
+                            <span className="text-sm font-medium text-slate-300">Select Folder</span>
                           </>
                         )}
                       </div>
@@ -710,11 +711,11 @@ export default function UploadData() {
                     <div className="space-y-4 animate-in slide-in-from-bottom-2">
                       {photoUploadProgress && (
                         <div className="space-y-2">
-                          <div className="flex justify-between text-xs font-semibold uppercase text-slate-500 tracking-wider">
+                          <div className="flex justify-between text-xs font-semibold uppercase text-muted-foreground tracking-wider">
                             <span>Processing</span>
                             <span>{Math.round((photoUploadProgress.processed / photoUploadProgress.total) * 100)}%</span>
                           </div>
-                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-300 ease-out"
                               style={{ width: `${(photoUploadProgress.processed / photoUploadProgress.total) * 100}%` }}
@@ -725,7 +726,7 @@ export default function UploadData() {
                       <Button
                         onClick={handleBulkPhotoUpload}
                         disabled={!!photoUploadProgress}
-                        className="w-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg disabled:opacity-50"
+                        className="w-full bg-pink-600 hover:bg-pink-700 text-white shadow-lg disabled:opacity-50"
                       >
                         {photoUploadProgress ? <Loader2 className="animate-spin mr-2" /> : "Start Photo Match"}
                       </Button>
@@ -739,32 +740,32 @@ export default function UploadData() {
             {/* Results Section */}
             {uploadResult && (
               <div className="animate-in fade-in slide-in-from-top-4">
-                <Card className="border-l-4 border-l-slate-800 shadow-xl bg-white/90 backdrop-blur">
+                <Card className="border-l-4 border-l-emerald-500 shadow-xl bg-black/60 backdrop-blur border-t-0 border-r-0 border-b-0">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-lg font-bold flex items-center gap-2">
-                      <FileCheck className="h-5 w-5 text-emerald-600" />
+                    <CardTitle className="text-lg font-bold flex items-center gap-2 text-white">
+                      <FileCheck className="h-5 w-5 text-emerald-500" />
                       Import Summary
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
-                        <div className="text-2xl font-bold text-emerald-700">{uploadResult.success}</div>
-                        <div className="text-xs font-medium text-emerald-600 uppercase tracking-wide">Success</div>
+                      <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                        <div className="text-2xl font-bold text-emerald-400">{uploadResult.success}</div>
+                        <div className="text-xs font-medium text-emerald-500/70 uppercase tracking-wide">Success</div>
                       </div>
-                      <div className="p-4 rounded-xl bg-rose-50 border border-rose-100">
-                        <div className="text-2xl font-bold text-rose-700">{uploadResult.failed}</div>
-                        <div className="text-xs font-medium text-rose-600 uppercase tracking-wide">Failed</div>
+                      <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                        <div className="text-2xl font-bold text-rose-400">{uploadResult.failed}</div>
+                        <div className="text-xs font-medium text-rose-500/70 uppercase tracking-wide">Failed</div>
                       </div>
                     </div>
                     {uploadResult.errors.length > 0 && (
-                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 max-h-40 overflow-y-auto custom-scrollbar">
-                        <h4 className="flex items-center gap-2 text-sm font-semibold text-rose-600 mb-2">
+                      <div className="p-4 rounded-xl bg-black/20 border border-white/5 max-h-40 overflow-y-auto custom-scrollbar">
+                        <h4 className="flex items-center gap-2 text-sm font-semibold text-rose-400 mb-2">
                           <AlertCircle className="h-4 w-4" /> Import Errors
                         </h4>
                         <ul className="space-y-1">
                           {uploadResult.errors.map((err, i) => (
-                            <li key={i} className="text-xs text-slate-600 font-mono">• {err}</li>
+                            <li key={i} className="text-xs text-slate-400 font-mono">• {err}</li>
                           ))}
                         </ul>
                       </div>
@@ -775,47 +776,47 @@ export default function UploadData() {
             )}
 
             {/* Existing Batches List (Enhanced) */}
-            <Card className="border-none shadow-2xl bg-white/80 backdrop-blur-xl">
+            <Card className="border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
-                    <CardTitle className="text-xl font-bold text-slate-800">Recent Batches</CardTitle>
-                    <CardDescription>Manage and submit your data batches.</CardDescription>
+                    <CardTitle className="text-xl font-bold text-white">Recent Batches</CardTitle>
+                    <CardDescription className="text-muted-foreground">Manage and submit your data batches.</CardDescription>
                   </div>
-                  <Database className="h-5 w-5 text-slate-400" />
+                  <Database className="h-5 w-5 text-muted-foreground" />
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="rounded-xl border border-slate-100 overflow-hidden bg-white/50">
+                <div className="rounded-xl border border-white/5 overflow-hidden bg-white/[0.02]">
                   {loadingBatches ? (
-                    <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-indigo-500" /></div>
+                    <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-primary" /></div>
                   ) : existingBatches.length > 0 ? (
                     <Table>
-                      <TableHeader className="bg-slate-50/80">
-                        <TableRow>
-                          <TableHead className="font-semibold text-slate-700">Batch Info</TableHead>
-                          <TableHead className="text-right font-semibold text-slate-700">Created</TableHead>
+                      <TableHeader className="bg-white/5">
+                        <TableRow className="border-white/5 hover:bg-transparent">
+                          <TableHead className="font-semibold text-slate-300">Batch Info</TableHead>
+                          <TableHead className="text-right font-semibold text-slate-300">Created</TableHead>
                           <TableHead className="w-[100px]"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {existingBatches.map((batch) => (
-                          <TableRow key={batch.id} className="hover:bg-slate-50/50 transition-colors">
+                          <TableRow key={batch.id} className="hover:bg-white/5 transition-colors border-white/5">
                             <TableCell>
-                              <div className="font-medium text-slate-900">{batch.batch_name}</div>
+                              <div className="font-medium text-white">{batch.batch_name}</div>
                               <div className="mt-1">
                                 <span className={cn(
                                   "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                                  batch.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                                    batch.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
-                                      batch.status === 'processing' ? 'bg-amber-100 text-amber-700' :
-                                        'bg-slate-100 text-slate-600'
+                                  batch.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' :
+                                    batch.status === 'submitted' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20' :
+                                      batch.status === 'processing' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' :
+                                        'bg-slate-500/20 text-slate-400 border border-slate-500/20'
                                 )}>
                                   {batch.status || 'DRAFT'}
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right text-xs text-slate-500">
+                            <TableCell className="text-right text-xs text-muted-foreground">
                               {new Date(batch.created_at).toLocaleDateString()}
                             </TableCell>
                             <TableCell>
@@ -823,7 +824,7 @@ export default function UploadData() {
                                 {batch.status === 'draft' && (
                                   <Button
                                     size="sm"
-                                    className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    className="h-8 text-xs bg-primary hover:bg-primary/90 text-white border-0"
                                     onClick={async () => {
                                       if (confirm("Submit this batch?")) {
                                         await supabase.from('print_batches' as any).update({ status: 'submitted', submitted_at: new Date() }).eq('id', batch.id);
@@ -838,7 +839,7 @@ export default function UploadData() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                  className="h-8 w-8 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10"
                                   onClick={() => deleteBatch(batch.batch_name)}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -851,8 +852,8 @@ export default function UploadData() {
                     </Table>
                   ) : (
                     <div className="p-12 text-center">
-                      <p className="text-slate-500 mb-2">No batches yet</p>
-                      <p className="text-xs text-slate-400">Import a CSV to get started</p>
+                      <p className="text-muted-foreground mb-2">No batches yet</p>
+                      <p className="text-xs text-slate-500">Import a CSV to get started</p>
                     </div>
                   )}
                 </div>
@@ -864,54 +865,54 @@ export default function UploadData() {
           {/* Right Column: Template Preview */}
           <div className="lg:col-span-12 xl:col-span-4 space-y-6">
             <div className="sticky top-6">
-              <Card className="overflow-hidden border-none shadow-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white">
+              <Card className="overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl">
                 <CardHeader className="pb-4">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <CardIcon className="h-5 w-5 text-indigo-400" />
+                  <CardTitle className="flex items-center gap-2 text-lg text-white">
+                    <CardIcon className="h-5 w-5 text-primary" />
                     Your ID Template
                   </CardTitle>
-                  <CardDescription className="text-slate-300">
+                  <CardDescription className="text-muted-foreground">
                     Live preview of your school's assigned design.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex justify-center pb-8 pt-4">
                   {previewImage ? (
-                    <div className="relative group">
-                      <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg blur opacity-50 group-hover:opacity-100 transition duration-500" />
-                      <div className="relative rounded-lg overflow-hidden bg-white shadow-2xl transform group-hover:scale-[1.02] transition-all duration-500">
+                    <div className="relative group w-full">
+                      <div className="absolute -inset-1 bg-gradient-to-r from-primary to-violet-600 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-500" />
+                      <div className="relative rounded-lg overflow-hidden bg-black/50 shadow-2xl transform group-hover:scale-[1.02] transition-all duration-500 border border-white/10">
                         <img
                           src={previewImage}
                           alt="ID Preview"
-                          className="max-w-full w-auto max-h-[400px] object-contain"
+                          className="w-full h-auto object-contain"
                         />
                       </div>
                     </div>
                   ) : (
-                    <div className="h-48 w-full flex items-center justify-center border-2 border-dashed border-slate-600/50 rounded-lg bg-slate-800/50">
-                      <span className="text-slate-500 text-sm">No template assigned</span>
+                    <div className="h-48 w-full flex items-center justify-center border-2 border-dashed border-white/10 rounded-lg bg-white/5">
+                      <span className="text-muted-foreground text-sm">No template assigned</span>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
               {/* CSV Guide */}
-              <Card className="mt-6 border-none shadow-xl bg-white/80 backdrop-blur">
+              <Card className="mt-6 border-white/10 shadow-xl bg-black/40 backdrop-blur-xl">
                 <CardHeader>
-                  <CardTitle className="text-sm font-bold uppercase tracking-wider text-slate-500">Quick Guide</CardTitle>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Quick Guide</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-sm">
                     <div className="flex items-start gap-3 mb-3">
-                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">1</div>
-                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Download Template</span> to get the correct headers.</p>
+                      <div className="h-6 w-6 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold border border-primary/20">1</div>
+                      <p className="text-slate-300"><span className="font-semibold text-white">Download Template</span> to get the correct headers.</p>
                     </div>
                     <div className="flex items-start gap-3 mb-3">
-                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">2</div>
-                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Fill Data</span> ensuring unique Roll Numbers.</p>
+                      <div className="h-6 w-6 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold border border-primary/20">2</div>
+                      <p className="text-slate-300"><span className="font-semibold text-white">Fill Data</span> ensuring unique Roll Numbers.</p>
                     </div>
                     <div className="flex items-start gap-3">
-                      <div className="h-6 w-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 text-xs font-bold">3</div>
-                      <p className="text-slate-600"><span className="font-semibold text-slate-900">Upload Photos</span> matching the exact filenames in your CSV.</p>
+                      <div className="h-6 w-6 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold border border-primary/20">3</div>
+                      <p className="text-slate-300"><span className="font-semibold text-white">Upload Photos</span> matching the exact filenames in your CSV.</p>
                     </div>
                   </div>
                 </CardContent>
@@ -921,6 +922,5 @@ export default function UploadData() {
         </div>
       </div>
     </DashboardLayout>
-
   );
 }

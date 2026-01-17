@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut } from 'lucide-react';
+import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut, Plus } from 'lucide-react';
 
 export interface CanvasEditorRef {
     triggerSave: () => void;
@@ -100,9 +100,13 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                 newCanvas.on('selection:updated', (e) => setSelectedObject(e.selected?.[0] || null));
                 newCanvas.on('selection:cleared', () => setSelectedObject(null));
 
-                newCanvas.on('object:modified', () => saveCurrentSide(newCanvas));
-                newCanvas.on('object:added', () => saveCurrentSide(newCanvas));
-                newCanvas.on('object:removed', () => saveCurrentSide(newCanvas));
+                // Use saveHistory instead of saveCurrentSide for undo/redo
+                newCanvas.on('object:modified', () => saveHistory(newCanvas));
+                newCanvas.on('object:added', () => saveHistory(newCanvas));
+                newCanvas.on('object:removed', () => saveHistory(newCanvas));
+
+                // Initial history save
+                saveHistory(newCanvas);
 
             } catch (err: any) {
                 console.warn(`Init attempt ${retryCount + 1} failed:`, err.message);
@@ -133,7 +137,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             }
             setCanvas(null);
         };
-    }, []); // Run once on mount
+    }, []); // Run once on mount (removing history dependency to avoid loops, history functions use ref if needed or are stable)
 
     const saveCurrentSide = (c: fabric.Canvas) => {
         // Fix: Don't save if we are in the middle of switching sides OR in preview mode
@@ -525,12 +529,22 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
         setSelectedObject(null);
     };
 
+    // Force re-render helper
+    const [, forceUpdate] = useState(0);
+
     // Update Object Property
     const updateProperty = (key: string, value: any) => {
         if (!canvas || !selectedObject) return;
         selectedObject.set(key as any, value);
-        selectedObject.setCoords(); // Required for some updates
+
+        // Special handling for some properties that require deep updates
+        if (key === 'fill') {
+            canvas.renderAll();
+        }
+
+        selectedObject.setCoords();
         canvas.requestRenderAll();
+        forceUpdate((n) => n + 1); // Trigger React re-render to update UI inputs
     };
 
     // Layer Management
@@ -553,6 +567,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
         }
         canvas.renderAll();
         saveCurrentSide(canvas);
+        forceUpdate((n) => n + 1);
     };
 
 
@@ -560,8 +575,6 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     const handleAlign = (alignment: string) => {
         if (!canvas || !selectedObject) return;
 
-        // We need to shift the object position to keep it visually in the same place
-        // when changing originX, otherwise it jumps.
         const center = selectedObject.getCenterPoint();
 
         selectedObject.set({
@@ -569,31 +582,12 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             originX: alignment as any,
         });
 
-        // Reset position based on new anchor
-        // This is complex in Fabric, simplistic approach:
-        // If center, adjust left to center.
-        // If left, adjust left to left edge.
-        // Easier: Just set textual alignment property?
-        // NO, the user wants "stable" alignment. 
-        // If I set originX='center', increasing text length expands both ways. Correct.
-        // But simply setting originX jumps the object.
-        // So we just set it, and let user move it to correct spot? 
-        // User asked "how to fix", implying they want it to work automatically.
-        // Let's try just setting originX and let them reposition if needed, 
-        // OR try to compensate. 
-        // Basic compensation: 
         selectedObject.setPositionByOrigin(center, 'center', 'center');
-        // Wait, if originX becomes 'left', setPositionByOrigin(center, 'left', 'center')?
-        // No, we want the visual center to stay same? Or visual anchor?
-        // Actually, best flow: User clicks "Center Align", text jumps to anchor at center.
-        // User drags it to middle of card.
-        // Then subsequent text changes expand from center.
-        // So just setting properties is enough for the "Mechanism", user does "Placement".
 
         selectedObject.setCoords();
         canvas.requestRenderAll();
         updateProperty('textAlign', alignment);
-        updateProperty('textAlign', alignment);
+        // Note: updateProperty already calls forceUpdate
     };
 
     // Fit to Canvas
@@ -634,6 +628,130 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
 
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // History State
+    const [history, setHistory] = useState<string[]>([]);
+    const [historyStep, setHistoryStep] = useState(-1);
+    const isHistoryProcessing = useRef(false);
+
+    // Save History
+    const saveHistory = (c: fabric.Canvas) => {
+        if (isHistoryProcessing.current || switchingSideRef.current || isPreviewRef.current) return;
+
+        const json = JSON.stringify(c.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable', 'isCircle']));
+
+        setHistory(prev => {
+            const newHistory = prev.slice(0, historyStep + 1);
+            newHistory.push(json);
+            return newHistory;
+        });
+        setHistoryStep(prev => prev + 1);
+        saveCurrentSide(c);
+    };
+
+    // Undo
+    const undo = async () => {
+        if (historyStep <= 0 || !canvas) return;
+        isHistoryProcessing.current = true;
+
+        const prevStep = historyStep - 1;
+        const json = history[prevStep];
+
+        await canvas.loadFromJSON(JSON.parse(json));
+        canvas.renderAll();
+        setHistoryStep(prevStep);
+        isHistoryProcessing.current = false;
+
+        // Restore selection if possible, or just clear
+        canvas.discardActiveObject();
+        setSelectedObject(null);
+    };
+
+    // Redo
+    const redo = async () => {
+        if (historyStep >= history.length - 1 || !canvas) return;
+        isHistoryProcessing.current = true;
+
+        const nextStep = historyStep + 1;
+        const json = history[nextStep];
+
+        await canvas.loadFromJSON(JSON.parse(json));
+        canvas.renderAll();
+        setHistoryStep(nextStep);
+        isHistoryProcessing.current = false;
+    };
+
+
+    // Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if input/textarea is focused
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+
+            if (!canvas) return;
+
+            // Undo / Redo
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    redo();
+                } else {
+                    undo();
+                }
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                redo();
+                return;
+            }
+
+            // Object Movement (Arrow Keys)
+            const activeObj = canvas.getActiveObject();
+            const isEditingText = (activeObj instanceof fabric.IText || activeObj instanceof fabric.Textbox) && activeObj.isEditing;
+
+            if (activeObj && !isEditingText) {
+                const step = e.shiftKey ? 10 : 1;
+                switch (e.key) {
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        activeObj.set('top', (activeObj.top || 0) - step);
+                        activeObj.setCoords();
+                        canvas.requestRenderAll();
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        activeObj.set('top', (activeObj.top || 0) + step);
+                        activeObj.setCoords();
+                        canvas.requestRenderAll();
+                        break;
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        activeObj.set('left', (activeObj.left || 0) - step);
+                        activeObj.setCoords();
+                        canvas.requestRenderAll();
+                        break;
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        activeObj.set('left', (activeObj.left || 0) + step);
+                        activeObj.setCoords();
+                        canvas.requestRenderAll();
+                        break;
+                    case 'Delete':
+                    case 'Backspace':
+                        // Don't delete if editing text
+                        if (!(activeObj instanceof fabric.IText && activeObj.isEditing)) {
+                            e.preventDefault();
+                            deleteSelected();
+                        }
+                        break;
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [canvas, history, historyStep, selectedObject]); // Dependencies for closure
+
     // Auto-Fit Canvas on Mount
     useEffect(() => {
         const fitCanvas = () => {
@@ -653,7 +771,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             // Fit to whichever is smaller constraint
             let newZoom = Math.min(scaleX, scaleY);
 
-            // Cap initial zoom to reasonable limits (e.g. don't zoom in to 500% on tiny cards)
+            // Cap initial zoom to reasonable limits
             newZoom = Math.min(Math.max(newZoom, 0.1), 1.0);
 
             setZoom(newZoom);
@@ -667,38 +785,111 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             clearTimeout(timeout);
             window.removeEventListener('resize', fitCanvas);
         };
-    }, [width, height]); // Re-run if card dimensions change
+    }, [width, height]);
+
+
+    const isTextObject = (obj: fabric.FabricObject | null) => {
+        if (!obj) return false;
+        // Check for isEditing property existence or instance type
+        return obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'text';
+    };
+
+    // Zoom Wheel Handler - Native Listener for Passive control
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const wrapper = wrapperRef.current;
+        if (!wrapper) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault(); // PREVENT BROWSER ZOOM
+                e.stopPropagation();
+
+                const delta = e.deltaY;
+                const sensitivity = 0.005; // Matches StudentEditDialog
+                const zoomStep = delta * sensitivity;
+
+                setZoom(prev => {
+                    const newZoom = prev - zoomStep;
+                    return Math.min(Math.max(newZoom, 0.1), 3.0);
+                });
+            }
+        };
+
+        // Must be passive: false to allow preventDefault
+        wrapper.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+            wrapper.removeEventListener('wheel', handleWheel);
+        };
+    }, []);
 
     return (
-        <div className="flex bg-background border rounded-lg overflow-hidden h-full">
-            {/* Sidebar - Tools */}
-            <div className="w-64 bg-muted/30 border-r p-4 flex flex-col gap-4 overflow-y-auto">
+        <div ref={wrapperRef} className="relative w-full h-full bg-[#0f0f13] overflow-hidden">
+            {/* Background Pattern */}
+            <div className="absolute inset-0 opacity-20 pointer-events-none"
+                style={{
+                    backgroundImage: 'radial-gradient(circle at 1px 1px, #333 1px, transparent 0)',
+                    backgroundSize: '24px 24px'
+                }}
+            />
 
-                {/* Preview Toggle */}
-                <div className="pb-4 border-b">
+            {/* Main Canvas Area */}
+            <div className="absolute inset-0 flex items-center justify-center overflow-auto custom-scrollbar">
+                <div ref={containerRef} className="min-w-full min-h-full relative flex items-center justify-center p-20">
+                    <div className="relative flex flex-col items-center justify-center">
+                        {/* Tabs overlapping the canvas top - Move out or keep? Keep close to canvas */}
+                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10">
+                            <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
+                                <TabsList className="glass border-white/10 p-1 bg-black/40 backdrop-blur-md">
+                                    <TabsTrigger value="front" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg text-white/70">Front</TabsTrigger>
+                                    <TabsTrigger value="back" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg text-white/70">Back</TabsTrigger>
+                                </TabsList>
+                            </Tabs>
+                        </div>
+
+                        <div
+                            className="shadow-2xl shadow-black/50 transition-all duration-200 ease-out border border-white/5"
+                            style={{
+                                width: width * zoom,
+                                height: height * zoom
+                            }}
+                        >
+                            <div className="origin-top-left" style={{ transform: `scale(${zoom})` }}>
+                                <canvas ref={canvasRef} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Left Sidebar - Tools */}
+            <div className="absolute left-6 top-24 bottom-6 w-64 glass border-white/10 rounded-2xl flex flex-col gap-4 overflow-hidden z-20 shadow-2xl shadow-black/50 backdrop-blur-xl bg-black/40">
+                <div className="p-4 border-b border-white/5 bg-white/5">
                     <Button
-                        className={`w-full ${isPreview ? 'bg-orange-500 hover:bg-orange-600' : 'bg-slate-800 hover:bg-slate-900'} text-white`}
+                        className={`w-full ${isPreview ? 'bg-orange-500 hover:bg-orange-600' : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/20'} transition-all`}
                         onClick={togglePreview}
                     >
                         {isPreview ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
                         {isPreview ? 'Exit Preview' : 'Live Preview'}
                     </Button>
-                    {isPreview && <p className="text-[10px] text-muted-foreground text-center mt-2">Editing locked in preview</p>}
+                    {isPreview && <p className="text-[10px] text-muted-foreground text-center mt-2 animate-pulse">Editing locked</p>}
                 </div>
 
-                <div className={`space-y-4 ${isPreview ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <div className="space-y-2">
-                        <Label className="text-xs uppercase text-muted-foreground font-bold">Add Elements</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" size="sm" onClick={addText} className="justify-start">
-                                <Type className="w-4 h-4 mr-2" /> Text
-                            </Button>
-                        </div>
+                <div className={`p-4 space-y-6 overflow-y-auto custom-scrollbar ${isPreview ? 'opacity-50 pointer-events-none' : ''}`}>
+
+                    {/* Elements */}
+                    <div className="space-y-3">
+                        <Button variant="outline" size="sm" onClick={addText} className="w-fit h-9 px-4 justify-start border-white/10 hover:bg-white/10 hover:text-white dark-glass rounded-full">
+                            <Type className="w-4 h-4 mr-2 text-primary" /> Text
+                        </Button>
                     </div>
 
-                    <div className="space-y-2">
-                        <Label className="text-xs uppercase text-muted-foreground font-bold">Media</Label>
-                        <div className="grid grid-cols-2 gap-2">
+                    {/* Media */}
+                    <div className="space-y-3">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Media</Label>
+                        <div className="grid grid-cols-2 gap-3">
                             <div className="relative">
                                 <input
                                     type="file"
@@ -706,50 +897,59 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                                     onChange={handleImageUpload}
                                     className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
                                 />
-                                <Button variant="outline" size="sm" className="w-full justify-start">
-                                    <ImageIcon className="w-4 h-4 mr-2" /> Image
+                                <Button variant="outline" className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                    <ImageIcon className="w-4 h-4" /> Image
                                 </Button>
                             </div>
-                            <Button variant="outline" size="sm" onClick={addImagePlaceholder} className="justify-start">
-                                <ImageIcon className="w-4 h-4 mr-2" /> Rect Photo
+                            <Button variant="outline" onClick={addImagePlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                <Square className="w-4 h-4" /> Rect Photo
                             </Button>
-                            <Button variant="outline" size="sm" onClick={addCirclePhotoPlaceholder} className="justify-start">
-                                <Circle className="w-4 h-4 mr-2" /> Circle Photo
-                            </Button>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label className="text-xs uppercase text-muted-foreground font-bold">Shapes</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" size="sm" onClick={() => addShape('rect')} className="justify-start">
-                                <Square className="w-4 h-4 mr-2" /> Rect
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => addShape('circle')} className="justify-start">
-                                <Circle className="w-4 h-4 mr-2" /> Circle
+                            <Button variant="outline" onClick={addCirclePhotoPlaceholder} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2 col-span-2">
+                                <Circle className="w-4 h-4" /> Circle Photo
                             </Button>
                         </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <Label className="text-xs uppercase text-muted-foreground font-bold">Data Fields</Label>
+                    {/* Shapes */}
+                    <div className="space-y-3">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Shapes</Label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Button variant="outline" onClick={() => addShape('rect')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                <Square className="w-4 h-4" /> Rect
+                            </Button>
+                            <Button variant="outline" onClick={() => addShape('circle')} className="w-full h-10 justify-start border-white/10 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white gap-2">
+                                <Circle className="w-4 h-4" /> Circle
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Dynamic Data */}
+                    <div className="space-y-3">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Data Fields</Label>
                         <div className="grid grid-cols-2 gap-2">
                             {['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch'].map(field => (
-                                <Button key={field} variant="outline" size="sm" onClick={() => addPlaceholder(field)} className="justify-start font-mono text-[10px] h-8 truncate bg-card/50 hover:bg-primary/20 hover:text-primary hover:border-primary/50 transition-all" title={field}>
+                                <Button
+                                    key={field}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => addPlaceholder(field)}
+                                    className="justify-center font-mono text-[10px] h-9 px-1 truncate border-white/10 bg-white/5 hover:bg-primary/20 hover:text-primary hover:border-primary/50 transition-all text-muted-foreground rounded-full"
+                                    title={`Add {{${field}}}`}
+                                >
                                     {`{{${field}}}`}
                                 </Button>
                             ))}
                         </div>
-                        <div className="flex gap-2 mt-2">
+                        <div className="flex gap-2 mt-4 pt-2 border-t border-white/5">
                             <Input
                                 placeholder="custom_field"
-                                className="h-8 text-xs font-mono"
+                                className="h-9 text-xs font-mono bg-black/40 border-white/10 focus-visible:ring-primary/50"
                                 id="custom-field-input"
                             />
                             <Button
                                 size="sm"
-                                variant="outline"
-                                className="h-8 px-2"
+                                variant="secondary"
+                                className="h-9 px-4 font-bold"
                                 onClick={() => {
                                     const input = document.getElementById('custom-field-input') as HTMLInputElement;
                                     if (input && input.value) {
@@ -762,188 +962,165 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                             </Button>
                         </div>
                     </div>
-
-                    <div className="mt-auto">
-                        <Button className="w-full gradient-primary" onClick={handleSave}>Save Template</Button>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Canvas Area */}
-            <div className="flex-1 bg-gray-100 relative flex flex-col min-w-0 overflow-hidden">
-                {/* Scrollable Container */}
-                <div ref={containerRef} className="flex-1 overflow-auto p-8 flex">
-                    <div className="m-auto flex flex-col items-center">
-                        <div className="mb-4">
-                            <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
-                                <TabsList className="glass p-1">
-                                    <TabsTrigger value="front" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white">Front Side</TabsTrigger>
-                                    <TabsTrigger value="back" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white">Back Side</TabsTrigger>
-                                </TabsList>
-                            </Tabs>
-                        </div>
-                        <div
-                            className="shadow-2xl relative transition-all duration-200 ease-out"
-                            style={{
-                                width: width * zoom,
-                                height: height * zoom
-                            }}
-                        >
-                            <div className="origin-top-left" style={{ transform: `scale(${zoom})` }}>
-                                <canvas ref={canvasRef} />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Zoom Controls Overlay - Fixed outside scroll flow */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 glass px-4 py-2 flex items-center gap-4 z-10 rounded-full border-white/10">
-                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>
-                        <ZoomOut className="w-3 h-3" />
-                    </Button>
-                    <span className="text-xs font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => setZoom(z => Math.min(2, z + 0.1))}>
-                        <ZoomIn className="w-3 h-3" />
-                    </Button>
-                    <div className="w-px h-4 bg-border mx-1" />
-                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(1)}>Reset</Button>
-                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setZoom(0.5)}>Fit</Button>
                 </div>
             </div>
 
             {/* Right Sidebar - Properties */}
-            <div className="w-72 bg-muted/30 border-l p-4 overflow-y-auto">
-                {selectedObject ? (
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-sm">Properties</h3>
-                            <Button variant="ghost" size="icon" onClick={deleteSelected} className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                                <Trash2 className="w-4 h-4" />
-                            </Button>
-                        </div>
+            <div className="absolute right-6 top-24 bottom-6 w-72 glass border-white/10 rounded-2xl flex flex-col z-20 shadow-2xl shadow-black/50 backdrop-blur-xl bg-black/40 overflow-hidden">
+                <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                    <h3 className="font-semibold text-sm text-white">Properties</h3>
+                    {selectedObject && (
+                        <Button variant="ghost" size="icon" onClick={deleteSelected} className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                            <Trash2 className="w-4 h-4" />
+                        </Button>
+                    )}
+                </div>
 
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Color</Label>
-                                <div className="flex gap-2">
-                                    <Input
-                                        type="color"
-                                        value={selectedObject.fill as string}
-                                        onChange={(e) => updateProperty('fill', e.target.value)}
-                                        className="w-12 h-8 p-1 cursor-pointer"
-                                    />
-                                    <Input
-                                        value={selectedObject.fill as string}
-                                        onChange={(e) => updateProperty('fill', e.target.value)}
-                                        className="flex-1 font-mono text-xs"
-                                    />
+                <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
+                    {selectedObject ? (
+                        <div className="space-y-6">
+                            <div className="space-y-3">
+                                <Label className="text-xs text-muted-foreground">Appearance</Label>
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex gap-2 items-center">
+                                        <div className="w-8 h-8 rounded-md border border-white/10 overflow-hidden relative group cursor-pointer">
+                                            <Input
+                                                type="color"
+                                                value={selectedObject.fill as string || '#000000'}
+                                                onChange={(e) => updateProperty('fill', e.target.value)}
+                                                className="absolute inset-0 w-12 h-12 -top-2 -left-2 cursor-pointer p-0 border-none"
+                                            />
+                                        </div>
+                                        <Input
+                                            value={selectedObject.fill as string || '#000000'}
+                                            onChange={(e) => updateProperty('fill', e.target.value)}
+                                            className="flex-1 font-mono text-xs h-8 bg-black/20 border-white/10"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>Opacity</span>
+                                            <span>{Math.round((selectedObject.opacity !== undefined ? selectedObject.opacity : 1) * 100)}%</span>
+                                        </div>
+                                        <Slider
+                                            value={[(selectedObject.opacity !== undefined ? selectedObject.opacity : 1) * 100]}
+                                            max={100}
+                                            step={1}
+                                            className="py-1"
+                                            onValueChange={(vals) => updateProperty('opacity', vals[0] / 100)}
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Opacity</Label>
-                                <Slider
-                                    value={[(selectedObject.opacity || 1) * 100]}
-                                    max={100}
-                                    step={1}
-                                    onValueChange={(vals) => updateProperty('opacity', vals[0] / 100)}
-                                />
-                            </div>
 
-                            <div className="space-y-2">
-                                <Label>Layer Order</Label>
-                                <div className="flex gap-1">
-                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('front')} title="Bring to Front">
+                            <div className="space-y-3">
+                                <Label className="text-xs text-muted-foreground">Arrangement</Label>
+                                <div className="grid grid-cols-4 gap-1">
+                                    <Button variant="outline" size="sm" className="text-muted-foreground border-white/10 hover:bg-white/10" onClick={() => handleLayer('front')} title="Bring to Front">
                                         <ChevronsUp className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('forward')} title="Bring Forward">
+                                    <Button variant="outline" size="sm" className="text-muted-foreground border-white/10 hover:bg-white/10" onClick={() => handleLayer('forward')} title="Bring Forward">
                                         <ChevronUp className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('backward')} title="Send Backward">
+                                    <Button variant="outline" size="sm" className="text-muted-foreground border-white/10 hover:bg-white/10" onClick={() => handleLayer('backward')} title="Send Backward">
                                         <ChevronDown className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleLayer('back')} title="Send to Back">
+                                    <Button variant="outline" size="sm" className="text-muted-foreground border-white/10 hover:bg-white/10" onClick={() => handleLayer('back')} title="Send to Back">
                                         <ChevronsDown className="h-4 w-4" />
                                     </Button>
                                 </div>
                                 {(selectedObject.type === 'image' || selectedObject.type === 'rect') && (
-                                    <Button variant="secondary" size="sm" className="w-full mt-2" onClick={fitToCanvas}>
-                                        <Maximize className="w-4 h-4 mr-2" /> Fit to Canvas
+                                    <Button variant="secondary" size="sm" className="w-full mt-2 bg-white/5 hover:bg-white/10 border border-white/10 text-muted-foreground" onClick={fitToCanvas}>
+                                        <Maximize className="w-3 h-3 mr-2" /> Fit to Canvas
                                     </Button>
                                 )}
                             </div>
 
-
                             {/* Text Specific Properties */}
-                            {(selectedObject instanceof fabric.IText || selectedObject.type === 'i-text') && (
+                            {isTextObject(selectedObject) && (
                                 <>
-                                    <div className="space-y-2">
-                                        <Label>Font Size</Label>
-                                        <Input
-                                            type="number"
-                                            value={(selectedObject as fabric.IText).fontSize}
-                                            onChange={(e) => updateProperty('fontSize', parseInt(e.target.value))}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label>Font Family</Label>
-                                        <select
-                                            className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                                            value={(selectedObject as fabric.IText).fontFamily}
-                                            onChange={(e) => updateProperty('fontFamily', e.target.value)}
-                                        >
-                                            <option value="Arial">Arial</option>
-                                            <option value="Times New Roman">Times New Roman</option>
-                                            <option value="Courier New">Courier New</option>
-                                            <option value="Verdana">Verdana</option>
-                                            <option value="Roboto">Roboto</option>
-                                            <option value="Open Sans">Open Sans</option>
-                                            <option value="Montserrat">Montserrat</option>
-                                            <option value="Lato">Lato</option>
-                                            <option value="Poppins">Poppins</option>
-                                        </select>
-                                    </div>
+                                    <div className="space-y-3 pt-3 border-t border-white/5">
+                                        <Label className="text-xs text-muted-foreground">Typography</Label>
+                                        <div className="space-y-2">
+                                            <Input
+                                                type="number"
+                                                value={(selectedObject as any).fontSize || 20}
+                                                onChange={(e) => updateProperty('fontSize', parseInt(e.target.value))}
+                                                className="h-8 bg-black/20 border-white/10"
+                                                placeholder="Size"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <select
+                                                className="w-full h-8 rounded-md border border-white/10 bg-black/20 px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-primary text-white"
+                                                value={(selectedObject as any).fontFamily || 'Arial'}
+                                                onChange={(e) => updateProperty('fontFamily', e.target.value)}
+                                            >
+                                                <option value="Arial">Arial</option>
+                                                <option value="Times New Roman">Times New Roman</option>
+                                                <option value="Courier New">Courier New</option>
+                                                <option value="Verdana">Verdana</option>
+                                                <option value="Roboto">Roboto</option>
+                                                <option value="Open Sans">Open Sans</option>
+                                                <option value="Montserrat">Montserrat</option>
+                                                <option value="Lato">Lato</option>
+                                                <option value="Poppins">Poppins</option>
+                                            </select>
+                                        </div>
 
-                                    <div className="space-y-2">
-                                        <Label>Alignment</Label>
-                                        <div className="flex gap-1">
+                                        <div className="flex gap-1 bg-black/20 p-1 rounded-md border border-white/10">
                                             <Button
-                                                variant={(selectedObject as fabric.IText).textAlign === 'left' ? 'secondary' : 'outline'}
+                                                variant="ghost"
                                                 size="sm"
-                                                className="flex-1"
+                                                className={`flex-1 h-7 ${(selectedObject as any).textAlign === 'left' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-muted-foreground'}`}
                                                 onClick={() => handleAlign('left')}
                                             >
-                                                <AlignLeft className="h-4 w-4" />
+                                                <AlignLeft className="h-3 w-3" />
                                             </Button>
                                             <Button
-                                                variant={(selectedObject as fabric.IText).textAlign === 'center' ? 'secondary' : 'outline'}
+                                                variant="ghost"
                                                 size="sm"
-                                                className="flex-1"
+                                                className={`flex-1 h-7 ${(selectedObject as any).textAlign === 'center' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-muted-foreground'}`}
                                                 onClick={() => handleAlign('center')}
                                             >
-                                                <AlignCenter className="h-4 w-4" />
+                                                <AlignCenter className="h-3 w-3" />
                                             </Button>
                                             <Button
-                                                variant={(selectedObject as fabric.IText).textAlign === 'right' ? 'secondary' : 'outline'}
+                                                variant="ghost"
                                                 size="sm"
-                                                className="flex-1"
+                                                className={`flex-1 h-7 ${(selectedObject as any).textAlign === 'right' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-muted-foreground'}`}
                                                 onClick={() => handleAlign('right')}
                                             >
-                                                <AlignRight className="h-4 w-4" />
+                                                <AlignRight className="h-3 w-3" />
                                             </Button>
                                         </div>
                                     </div>
-
                                 </>
                             )}
-
                         </div>
-                    </div>
-                ) : (
-                    <div className="text-center text-muted-foreground mt-10">
-                        <Move className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Select an element to edit properties</p>
-                    </div>
-                )}
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground/50">
+                            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+                                <Move className="w-8 h-8 opacity-50" />
+                            </div>
+                            <p className="text-sm font-medium text-white/50">No Selection</p>
+                            <p className="text-xs mt-1 max-w-[150px]">Click any element on the canvas to customize it</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Zoom Controls Overlay - Fixed center bottom */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass border-white/10 p-1.5 flex items-center gap-2 z-30 rounded-full shadow-xl shadow-black/50 bg-black/60 backdrop-blur-xl">
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-white/10 text-white" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>
+                    <ZoomOut className="w-4 h-4" />
+                </Button>
+                <div className="px-2 min-w-[3rem] text-center font-mono text-xs text-white/80">{Math.round(zoom * 100)}%</div>
+                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-white/10 text-white" onClick={() => setZoom(z => Math.min(2, z + 0.1))}>
+                    <ZoomIn className="w-4 h-4" />
+                </Button>
+                <div className="w-px h-4 bg-white/10 mx-1" />
+                <Button variant="ghost" size="sm" className="h-8 text-xs hover:bg-white/10 text-white/80 px-3 rounded-full" onClick={() => setZoom(1)}>Reset</Button>
             </div>
         </div >
     );

@@ -34,9 +34,12 @@ import {
   Download,
   Users,
   Upload,
+  Filter,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { StudentEditDialog } from '@/components/students/StudentEditDialog';
+import { BatchPhotoUploadDialog } from '@/components/students/BatchPhotoUploadDialog';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface Student {
   id: string;
@@ -49,10 +52,8 @@ interface Student {
   verification_status: string;
   photo_url: string | null;
   created_at: string;
-  school_id: string; // Ensure this is present for template fetching
+  school_id: string;
 }
-
-import { BatchPhotoUploadDialog } from '@/components/students/BatchPhotoUploadDialog';
 
 export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -87,7 +88,6 @@ export default function Students() {
 
   const filteredStudents = students.filter(
     (student) => {
-      // Batch ID filter
       const batchQuery = searchParams.get('batchId');
       if (batchQuery && (student as any).print_batch_id !== batchQuery) return false;
 
@@ -152,162 +152,179 @@ export default function Students() {
 
   return (
     <DashboardLayout>
-      <PageHeader
-        title="Students"
-        description="Manage student records and verification status"
-      >
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        <PageHeader
+          title="Students"
+          description="Manage student records and verification status"
+        />
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => setIsBatchUploadOpen(true)}>
+          <Button variant="outline" className="gap-2 glass border-white/10 hover:bg-white/5" onClick={() => setIsBatchUploadOpen(true)}>
             <Upload className="h-4 w-4" />
             Batch Photos
           </Button>
-          <Button className="gradient-primary gap-2">
+          <Button className="gradient-primary gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all">
             <Plus className="h-4 w-4" />
             Add Student
           </Button>
         </div>
-      </PageHeader>
+      </div>
 
       <BatchPhotoUploadDialog
         open={isBatchUploadOpen}
         onOpenChange={setIsBatchUploadOpen}
         onUploadComplete={() => {
-          fetchStudents(); // Refresh list to show new photos
+          fetchStudents();
           setIsBatchUploadOpen(false);
         }}
       />
 
-      <Card>
-        <CardContent className="p-6">
-          {/* Search and Filters */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
+      <Card className="glass-card border-none overflow-hidden">
+        <CardContent className="p-0">
+          {/* Toolbar */}
+          <div className="p-6 border-b border-white/5 flex flex-col sm:flex-row gap-4 items-center bg-black/20">
+            <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, roll number, or email..."
+                placeholder="Search students..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="pl-10 bg-black/20 border-white/10 focus:border-primary/50 text-white h-10 w-full transition-all hover:bg-black/30"
               />
             </div>
-            <Button variant="outline" className="gap-2">
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button variant="outline" size="icon" className="border-white/10 bg-black/20 hover:bg-white/5">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+              </Button>
+              <Button variant="outline" className="gap-2 border-white/10 bg-black/20 hover:bg-white/5 flex-1 sm:flex-none">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </div>
           </div>
 
           {/* Table */}
           {loading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-20">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
           ) : filteredStudents.length > 0 ? (
-            <div className="rounded-lg border border-border overflow-hidden">
+            <div className="relative overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead>Student</TableHead>
-                    <TableHead className="w-[50px]">Photo</TableHead>
-                    <TableHead>Roll Number</TableHead>
-                    <TableHead>Class</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Added</TableHead>
+                  <TableRow className="border-b border-white/5 hover:bg-transparent">
+                    <TableHead className="text-muted-foreground pl-6">Student</TableHead>
+                    <TableHead className="text-muted-foreground w-[50px]">Photo</TableHead>
+                    <TableHead className="text-muted-foreground">Roll Number</TableHead>
+                    <TableHead className="text-muted-foreground h-12">Class</TableHead>
+                    <TableHead className="text-muted-foreground">Department</TableHead>
+                    <TableHead className="text-muted-foreground">Status</TableHead>
+                    <TableHead className="text-muted-foreground">Added</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredStudents.map((student) => (
-                    <TableRow key={student.id} className="hover:bg-muted/30">
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-                            {student.photo_url ? (
-                              <img
-                                src={student.photo_url}
-                                alt={student.name}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <Users className="h-5 w-5 text-primary" />
-                            )}
+                  <AnimatePresence>
+                    {filteredStudents.map((student, index) => (
+                      <motion.tr
+                        key={student.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2, delay: index * 0.05 }}
+                        className="group border-b border-white/5 hover:bg-white/5 transition-colors"
+                      >
+                        <TableCell className="pl-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border border-white/10 group-hover:border-primary/50 transition-colors">
+                              {student.photo_url ? (
+                                <img
+                                  src={student.photo_url}
+                                  alt={student.name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <Users className="h-5 w-5 text-primary" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-white group-hover:text-primary transition-colors">{student.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {student.email || 'No email'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium">{student.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {student.email || 'No email'}
-                            </p>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`photo-${student.id}`} className="cursor-pointer hover:bg-white/10 p-1.5 rounded-full transition-colors group/upload">
+                              <Upload className="h-4 w-4 text-muted-foreground group-hover/upload:text-primary transition-colors" />
+                            </Label>
+                            <Input
+                              id={`photo-${student.id}`}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                if (e.target.files?.[0]) {
+                                  handlePhotoUpload(e.target.files[0], student.id);
+                                }
+                              }}
+                            />
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor={`photo-${student.id}`} className="cursor-pointer hover:bg-muted p-1 rounded-md">
-                            <Upload className="h-4 w-4 text-muted-foreground" />
-                          </Label>
-                          <Input
-                            id={`photo-${student.id}`}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              if (e.target.files?.[0]) {
-                                handlePhotoUpload(e.target.files[0], student.id);
-                              }
-                            }}
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {student.roll_number}
-                      </TableCell>
-                      <TableCell>{student.class || '-'}</TableCell>
-                      <TableCell>{student.department || '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={student.verification_status as any} />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">
-                        {format(new Date(student.created_at), 'MMM d, yyyy')}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem className="gap-2">
-                              <Eye className="h-4 w-4" />
-                              View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
-                              <Edit className="h-4 w-4" />
-                              Edit & Preview
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="gap-2 text-destructive focus:text-destructive"
-                              onClick={() => handleDelete(student.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm text-muted-foreground group-hover:text-white transition-colors">
+                          {student.roll_number}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{student.class || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{student.department || '-'}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={student.verification_status as any} />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {format(new Date(student.created_at), 'MMM d, yyyy')}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-white/10 hover:text-white">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="bg-[#0f0f13] border-white/10 text-white">
+                              <DropdownMenuItem className="gap-2 hover:bg-white/10 focus:bg-white/10 cursor-pointer">
+                                <Eye className="h-4 w-4" />
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="gap-2 hover:bg-white/10 focus:bg-white/10 cursor-pointer" onClick={() => handleEditClick(student)}>
+                                <Edit className="h-4 w-4" />
+                                Edit & Preview
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="gap-2 text-destructive focus:text-destructive hover:bg-destructive/10 focus:bg-destructive/10 cursor-pointer"
+                                onClick={() => handleDelete(student.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </motion.tr>
+                    ))}
+                  </AnimatePresence>
                 </TableBody>
               </Table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">No students found</h3>
-              <p className="text-sm text-muted-foreground mb-4">
+            <div className="text-center py-20">
+              <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-white/5 mb-6">
+                <Users className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-medium mb-2 text-white">No students found</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
                 {searchQuery
                   ? 'Try adjusting your search terms'
-                  : 'Get started by uploading student data'}
+                  : 'Get started by uploading your student data via CSV or adding manually.'}
               </p>
               {!searchQuery && (
                 <Button className="gradient-primary gap-2">
@@ -327,7 +344,6 @@ export default function Students() {
           onOpenChange={setIsEditOpen}
           onSave={() => {
             fetchStudents();
-            // Optionally refresh if preview image logic depends on it
           }}
         />
       )}
