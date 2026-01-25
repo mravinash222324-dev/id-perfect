@@ -1,12 +1,13 @@
 
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as fabric from 'fabric';
+import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut, Plus, Lock, Unlock } from 'lucide-react';
+import { Type, Image as ImageIcon, RotateCw, Trash2, Layers, Move, Square, Circle, Eye, EyeOff, AlignLeft, AlignCenter, AlignRight, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, Maximize, ZoomIn, ZoomOut, Plus, Lock, Unlock, Upload } from 'lucide-react';
 
 
 export interface CanvasEditorRef {
@@ -32,6 +33,11 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     const [frontJson, setFrontJson] = useState<any>(null); // Store front design
     const [backJson, setBackJson] = useState<any>(null); // Store back design
     const [zoom, setZoom] = useState(1);
+    const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+
+    // Dynamic Dimensions based on orientation
+    const currentWidth = orientation === 'horizontal' ? width : height;
+    const currentHeight = orientation === 'horizontal' ? height : width;
 
     const [layers, setLayers] = useState<fabric.FabricObject[]>([]);
     const [activeLeftTab, setActiveLeftTab] = useState('assets');
@@ -211,9 +217,16 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
         // Ensure current side is up to date
         const currentJson = canvas.toObject(['data', 'isPhotoPlaceholder', 'isPlaceholder', 'id', 'selectable', 'isCircle']);
 
+        const finalWidth = orientation === 'horizontal' ? width : height;
+        const finalHeight = orientation === 'horizontal' ? height : width;
+
         const finalData = {
             front_design: activeSide === 'front' ? currentJson : frontJson,
-            back_design: activeSide === 'back' ? currentJson : backJson
+            back_design: activeSide === 'back' ? currentJson : backJson,
+            csv_headers: csvHeaders.length > 0 ? csvHeaders : undefined,
+            card_width: finalWidth,
+            card_height: finalHeight,
+            orientation: orientation
         };
 
         onSave(finalData);
@@ -380,11 +393,11 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
     // Update Dimensions
     useEffect(() => {
         if (canvas) {
-            canvas.setWidth(width);
-            canvas.setHeight(height);
+            canvas.setWidth(currentWidth);
+            canvas.setHeight(currentHeight);
             canvas.renderAll();
         }
-    }, [canvas, width, height]);
+    }, [canvas, currentWidth, currentHeight]);
 
 
     // Add Text
@@ -473,6 +486,31 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             };
         };
         reader.readAsDataURL(file);
+    };
+
+    // CSV Handling
+    const [variableFields, setVariableFields] = useState<string[]>(['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch']);
+    const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+
+    const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            preview: 1, // Read only first few lines to get headers
+            complete: (results) => {
+                if (results.meta.fields && results.meta.fields.length > 0) {
+                    setCsvHeaders(results.meta.fields);
+                    setVariableFields(results.meta.fields);
+                    console.log("Updated variables from CSV:", results.meta.fields);
+                }
+            },
+            error: (err) => {
+                console.error("CSV Parse Error:", err);
+            }
+        });
     };
 
     // Add Circle Photo Placeholder
@@ -781,8 +819,8 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
 
             if (availableW <= 0 || availableH <= 0) return;
 
-            const scaleX = availableW / width;
-            const scaleY = availableH / height;
+            const scaleX = availableW / currentWidth;
+            const scaleY = availableH / currentHeight;
 
             // Fit to whichever is smaller constraint
             let newZoom = Math.min(scaleX, scaleY);
@@ -801,7 +839,7 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             clearTimeout(timeout);
             window.removeEventListener('resize', fitCanvas);
         };
-    }, [width, height]);
+    }, [currentWidth, currentHeight]);
 
 
     const isTextObject = (obj: fabric.FabricObject | null) => {
@@ -855,21 +893,33 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
             <div className="absolute inset-0 flex items-center justify-center overflow-auto custom-scrollbar">
                 <div ref={containerRef} className="min-w-full min-h-full relative flex items-center justify-center p-20">
                     <div className="relative flex flex-col items-center justify-center">
-                        {/* Tabs overlapping the canvas top - Move out or keep? Keep close to canvas */}
-                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10">
-                            <Tabs value={activeSide} onValueChange={(v) => handleSideChange(v as 'front' | 'back')}>
-                                <TabsList className="glass border-white/10 p-1 bg-black/40 backdrop-blur-md">
-                                    <TabsTrigger value="front" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg text-white/70">Front</TabsTrigger>
-                                    <TabsTrigger value="back" className="w-24 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-lg text-white/70">Back</TabsTrigger>
-                                </TabsList>
-                            </Tabs>
+                        {/* Orientation Toggle */}
+                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10 bg-black/40 backdrop-blur-md border border-white/10 p-1 rounded-lg flex gap-1">
+                            <Button
+                                variant={orientation === 'horizontal' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className={`h-7 px-3 text-xs ${orientation === 'horizontal' ? 'bg-primary text-white hover:bg-primary/90' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                                onClick={() => setOrientation('horizontal')}
+                            >
+                                <div className="w-4 h-3 border-2 border-current rounded-sm mr-2" />
+                                Horizontal
+                            </Button>
+                            <Button
+                                variant={orientation === 'vertical' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className={`h-7 px-3 text-xs ${orientation === 'vertical' ? 'bg-primary text-white hover:bg-primary/90' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                                onClick={() => setOrientation('vertical')}
+                            >
+                                <div className="w-3 h-4 border-2 border-current rounded-sm mr-2" />
+                                Vertical
+                            </Button>
                         </div>
 
                         <div
                             className="shadow-2xl shadow-black/50 transition-all duration-200 ease-out border border-white/5"
                             style={{
-                                width: width * zoom,
-                                height: height * zoom
+                                width: currentWidth * zoom,
+                                height: currentHeight * zoom
                             }}
                         >
                             <div className="origin-top-left" style={{ transform: `scale(${zoom})` }}>
@@ -951,9 +1001,22 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
 
                             {/* Dynamic Data */}
                             <div className="space-y-3">
-                                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Data Fields</Label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {['name', 'roll_number', 'class', 'department', 'blood_group', 'email', 'phone', 'dob', 'address', 'guardian_name', 'batch'].map(field => (
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold pl-1">Data Fields</Label>
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            accept=".csv"
+                                            onChange={handleCsvUpload}
+                                            className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                                        />
+                                        <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-white/10" title="Upload CSV Template">
+                                            <Upload className="w-3 h-3 text-muted-foreground hover:text-primary" />
+                                        </Button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-1">
+                                    {variableFields.map(field => (
                                         <Button
                                             key={field}
                                             variant="outline"

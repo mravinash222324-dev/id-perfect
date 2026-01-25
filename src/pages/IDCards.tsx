@@ -27,7 +27,6 @@ export default function IDCards() {
   const [bulkPhotos, setBulkPhotos] = useState<Map<string, File>>(new Map());
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [reviewOverrides, setReviewOverrides] = useState<Map<string, any>>(new Map());
-  const [withBorder, setWithBorder] = useState(false);
 
   // Handle Bulk Photo Selection
   const handleBulkPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,26 +135,26 @@ export default function IDCards() {
     if (!template) return;
 
     // Fixed Dimensions for PDF Layout (Portrait Mode)
-    // Card: 57mm x 89mm
+    // Card: CR80 Standard (53.98mm x 85.60mm) -> Round to 54 x 86 for practical cut
     // Grid: 3 columns, 3 rows (9 cards per page)
     // Page: A4 (210mm x 297mm)
-    const cardWidthMm = 57;
-    const cardHeightMm = 89;
+    const cardWidthMm = 54;
+    const cardHeightMm = 86;
     const cardsPerPage = 9;
-    
+
     // Page Margins (Centered)
-    // Horizontal: (210 - (57*3)) / 2 = (210 - 171) / 2 = 19.5mm
-    // Vertical: (297 - (89*3)) / 2 = (297 - 267) / 2 = 15mm
-    const marginLeft = 19.5;
-    const marginTop = 15;
+    // Horizontal: (210 - (54*3)) / 2 = (210 - 162) / 2 = 24mm
+    // Vertical: (297 - (86*3)) / 2 = (297 - 258) / 2 = 19.5mm
+    const marginLeft = 24;
+    const marginTop = 19.5;
     const colGap = 0; // Adjacent
     const rowGap = 0; // Adjacent
 
     // Canvas size for high-quality rasterization (300 DPI)
-    // 57mm / 25.4 * 300 = ~673 px
-    // 89mm / 25.4 * 300 = ~1051 px
-    const canvasWidthPx = 673;
-    const canvasHeightPx = 1051;
+    // 54mm / 25.4 * 300 = ~638 px
+    // 86mm / 25.4 * 300 = ~1016 px
+    const canvasWidthPx = 638;
+    const canvasHeightPx = 1016;
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -191,31 +190,57 @@ export default function IDCards() {
 
         const cardOverride = reviewOverrides.get(studentId) || {};
 
+        // Determine Render Dimensions based on Template
+        const templateWidth = template.card_width || canvasWidthPx;
+        const templateHeight = template.card_height || canvasHeightPx;
+        const isLandscape = templateWidth > templateHeight;
+
+        // If landscape, we render at landscape dimensions, then rotate for PDF
+        const renderW = isLandscape ? Math.max(templateWidth, templateHeight) : Math.min(templateWidth, templateHeight);
+        const renderH = isLandscape ? Math.min(templateWidth, templateHeight) : Math.max(templateWidth, templateHeight);
+
         // --- FRONT SIDE ONLY (Default for 10-up) ---
         let frontSource = cardOverride.front || template.front_design;
         if (frontSource && frontSource.front_design) frontSource = frontSource.front_design;
-        
-        if (frontSource) {
-           // Use shared renderer for consistent logic
-           const imgData = await renderCardSide(
-               frontSource, 
-               student, 
-               canvasWidthPx, 
-               canvasHeightPx, 
-               bulkPhotos
-           );
-           
-           if (imgData) {
-               doc.addImage(imgData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
 
-               if (withBorder) {
-                 doc.setLineWidth(0.1);
-                 doc.setDrawColor(200, 200, 200); 
-                 doc.rect(xPos, yPos, cardWidthMm, cardHeightMm);
-               }
-           }
+        if (frontSource) {
+          // Use shared renderer for consistent logic
+          const imgData = await renderCardSide(
+            frontSource,
+            student,
+            renderW,
+            renderH,
+            bulkPhotos
+          );
+
+          if (imgData) {
+            if (isLandscape) {
+              // Rotate 90 degrees clockwise to fit vertical slot
+              const rotatedCanvas = document.createElement('canvas');
+              rotatedCanvas.width = renderH; // New Width = Old Height (Vertical)
+              rotatedCanvas.height = renderW; // New Height = Old Width (Vertical)
+              const ctx = rotatedCanvas.getContext('2d');
+              if (ctx) {
+                const img = new Image();
+                img.src = imgData;
+                await new Promise(r => img.onload = r);
+
+                // Rotate 90 deg clockwise
+                ctx.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
+                ctx.rotate(90 * Math.PI / 180);
+                ctx.drawImage(img, -renderW / 2, -renderH / 2, renderW, renderH);
+
+                const rotatedData = rotatedCanvas.toDataURL('image/png');
+                doc.addImage(rotatedData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
+              }
+            } else {
+              // Standard Vertical
+              doc.addImage(imgData, 'PNG', xPos, yPos, cardWidthMm, cardHeightMm);
+            }
+            // Border removed as requested
+          }
         }
-        
+
         canvas.dispose();
         cardsOnCurrentPage++;
       }
@@ -289,11 +314,6 @@ export default function IDCards() {
                 {templates.length === 0 && !loading && (
                   <p className="text-xs text-destructive">No templates found. Create one in Design Studio.</p>
                 )}
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <Checkbox id="include-border" checked={withBorder} onCheckedChange={(c) => setWithBorder(c as boolean)} />
-                <Label htmlFor="include-border">Add Border to PDF</Label>
               </div>
 
               <div className="space-y-2">
@@ -504,18 +524,18 @@ async function performReplacements(canvas: any, student: any, bulkPhotos: Map<st
         let clipPath;
 
         if (isCircle) {
-           clipPath = new fabric.Circle({
-             radius: phWidth / 2 / scale,
-             originX: 'center', originY: 'center',
-             left: 0, top: 0
-           });
+          clipPath = new fabric.Circle({
+            radius: phWidth / 2 / scale,
+            originX: 'center', originY: 'center',
+            left: 0, top: 0
+          });
         } else {
-           clipPath = new fabric.Rect({
-             left: 0, top: 0, 
-             width: phWidth / scale, 
-             height: phHeight / scale,
-             originX: 'center', originY: 'center',
-           });
+          clipPath = new fabric.Rect({
+            left: 0, top: 0,
+            width: phWidth / scale,
+            height: phHeight / scale,
+            originX: 'center', originY: 'center',
+          });
         }
 
         fabricImage.set({

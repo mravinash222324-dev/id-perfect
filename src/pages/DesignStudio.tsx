@@ -12,11 +12,11 @@ import { ArrowLeft, Save } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function DesignStudio() {
-  // Fixed Standard Size: 5.7cm x 8.9cm @ 300 DPI (Portrait)
-  // 5.7cm / 2.54 * 300 = 673 px (Width)
-  // 8.9cm / 2.54 * 300 = 1051 px (Height)
-  const [cardWidth] = useState(673);
-  const [cardHeight] = useState(1051);
+  // Fixed Standard Size: CR80 @ 300 DPI (Landscape Default)
+  // 85.6mm -> ~1011 px
+  // 54mm -> ~638 px
+  const [cardWidth] = useState(1011);
+  const [cardHeight] = useState(638);
   const [templateName, setTemplateName] = useState('');
   const [description, setDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -72,15 +72,22 @@ export default function DesignStudio() {
 
     setIsSaving(true);
     try {
-      const { front_design, back_design } = canvasData || {};
+      // Extract data including new dimensions
+      const { front_design, back_design, card_width, card_height, orientation, csv_headers } = canvasData || {};
+
+      // Use dimensions from canvas if available, else fallback to defaults
+      const finalWidth = card_width || cardWidth;
+      const finalHeight = card_height || cardHeight;
 
       const { error } = await supabase.from('id_templates').insert({
         name: templateName,
         description: description,
         front_design: front_design,
         back_design: back_design,
-        card_width: cardWidth,
-        card_height: cardHeight,
+        card_width: finalWidth,
+        card_height: finalHeight,
+        orientation: orientation, // Ensure table has this column or store in metadata? Assuming card width/height is sufficient.
+        csv_headers: csv_headers,
         status: 'active',
         assigned_schools: assignedSchoolIds.length > 0 ? assignedSchoolIds : null
       } as any);
@@ -91,13 +98,17 @@ export default function DesignStudio() {
     } catch (err: any) {
       console.warn('Database save failed, falling back to local storage:', err);
 
+      const { front_design, back_design, card_width, card_height, orientation, csv_headers } = canvasData || {};
+      const finalWidth = card_width || cardWidth;
+      const finalHeight = card_height || cardHeight;
+
       const newTemplate = {
         id: `local-${Date.now()}`,
         name: templateName,
         description: description,
-        front_design: canvasData,
-        card_width: cardWidth,
-        card_height: cardHeight,
+        front_design: canvasData, // Keep full object for local? Or structure same as DB?
+        card_width: finalWidth,
+        card_height: finalHeight,
         status: 'active',
         created_at: new Date().toISOString(),
         is_local: true,
