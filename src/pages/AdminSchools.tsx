@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { createClient } from '@supabase/supabase-js';
-import { encryptPassword } from '@/utils/crypto';
+import { encryptPassword, decryptPassword } from '@/utils/crypto';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
@@ -22,7 +22,9 @@ import {
     Search,
     School,
     MoreHorizontal,
-    Copy
+    Copy,
+    Eye,
+    Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -299,61 +301,162 @@ export default function AdminSchools() {
 
     // View Link Logic
     const [retrievedLink, setRetrievedLink] = useState('');
+    const [retrievedPassword, setRetrievedPassword] = useState('');
     const [isViewLinkOpen, setIsViewLinkOpen] = useState(false);
     const [viewLinkLoading, setViewLinkLoading] = useState(false);
+    const [viewMode, setViewMode] = useState<'link' | 'password'>('link');
 
-    const viewSchoolLink = async (school: SchoolProfile) => {
+    // Change Password Logic
+    const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+    const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+    const [newAdminSetPassword, setNewAdminSetPassword] = useState('');
+
+    const getSchoolCredentials = async (schoolId: string) => {
+        // 1. Get the latest link
+        const { data: linkData, error } = await supabase
+            .from('dashboard_access_links' as any)
+            .select('id, encrypted_password')
+            .eq('user_id', schoolId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle() as any;
+
+        if (error) throw error;
+        if (!linkData) throw new Error("No active magic link/password record found");
+
+        // 2. Try to fetch the key
+        const { data: keyData, error: keyError } = await supabase
+            .from('dashboard_access_keys' as any)
+            .select('encryption_key')
+            .eq('link_id', linkData.id)
+            .maybeSingle() as any;
+
+        if (keyError) throw keyError;
+        if (!keyData?.encryption_key) throw new Error("Encryption key missing");
+
+        return { linkId: linkData.id, encrypted: linkData.encrypted_password, key: keyData.encryption_key };
+    };
+
+    const viewSchoolCredential = async (school: SchoolProfile, mode: 'link' | 'password') => {
         setViewLinkLoading(true);
         setRetrievedLink('');
+        setRetrievedPassword('');
+        setViewMode(mode);
         try {
-            // 1. Get the latest link
-            const { data: linkData, error } = await supabase
-                .from('dashboard_access_links' as any)
-                .select('id')
-                .eq('user_id', school.user_id || school.id)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle() as any;
+            const { linkId, encrypted, key } = await getSchoolCredentials(school.user_id || school.id);
 
-            if (error) throw error;
-
-            if (!linkData) {
-                toast.error("No active magic link found for this school");
-                return;
-            }
-
-            // 2. Try to fetch the key
-            const { data: keyData, error: keyError } = await supabase
-                .from('dashboard_access_keys' as any)
-                .select('encryption_key')
-                .eq('link_id', linkData.id)
-                .maybeSingle() as any;
-
-            if (keyError) {
-                console.error("Key fetch error:", keyError);
-                toast.error(`Key fetch failed: ${keyError.message}`);
-            }
-
-            console.log("Key Data Retrieved:", keyData);
-
-            let magicLink = '';
-            if (keyData && keyData.encryption_key) {
-                // Permanent Link
-                magicLink = `${window.location.origin}/magic-login?token=${linkData.id}&key=${keyData.encryption_key}`;
+            if (mode === 'link') {
+                const magicLink = `${window.location.origin}/magic-login?token=${linkId}&key=${key}`;
+                setRetrievedLink(magicLink);
             } else {
-                // Legacy Link (no key stored)
-                magicLink = `${window.location.origin}/magic-login?token=${linkData.id}`;
-                if (!keyError) toast.info("This is a legacy link (or key missing). It might be expired.");
+                if (!encrypted) throw new Error("No encrypted password stored for this user.");
+                const pass = await decryptPassword(encrypted, key);
+                setRetrievedPassword(pass);
             }
 
-            setRetrievedLink(magicLink);
             setIsViewLinkOpen(true);
-
         } catch (error: any) {
-            console.error("Error fetching link:", error);
-            toast.error("Failed to fetch link");
+            console.error("Error fetching credentials:", error);
+            toast.error(error.message || "Failed to fetch credentials");
         } finally {
             setViewLinkLoading(false);
+        }
+    };
+
+    // Replaces viewSchoolLink
+    const viewSchoolLink = (school: SchoolProfile) => viewSchoolCredential(school, 'link');
+
+    const openChangePassword = (school: SchoolProfile) => {
+        setSelectedSchool(school);
+        setNewAdminSetPassword('');
+        setIsChangePasswordOpen(true);
+    };
+
+    const performChangePassword = async () => {
+        if (!selectedSchool || !newAdminSetPassword || newAdminSetPassword.length < 6) {
+            toast.error("Invalid password (min 6 chars)");
+            return;
+        }
+
+        setChangePasswordLoading(true);
+        try {
+            // 1. Decrypt OLD password to authenticate
+            // We need to act AS the user to change their password securely without generic admin override (if undefined)
+            // But we can use the tempClient approach if we sign in.
+            const { linkId, encrypted, key } = await getSchoolCredentials(selectedSchool.user_id || selectedSchool.id);
+            const oldPassword = await decryptPassword(encrypted, key);
+
+            // 2. Sign in as user to change password
+            const tempClient = createClient(
+                import.meta.env.VITE_SUPABASE_URL,
+                import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+            );
+
+            const { data: signInData, error: signInError } = await tempClient.auth.signInWithPassword({
+                email: selectedSchool.email || '', // We need email. SchoolProfile interface has it?
+                // Let's ensure we have email. The profile might not, but 'fetchSchools' fetched profiles.
+                // We might need to fetch email from auth.users via edge function? 
+                // Wait, 'schools' state has 'email: check-db' fallback.
+                // WE FETCHED PROFILES. Profiles might not have email.
+                // Actually 'AdminSchools' fetchSchools fetch logic lines 99-102 fetches PROFILES.
+                // It does NOT fetch emails (auth table is restricted).
+                // However, we stored email in 'dashboard_access_links'.
+                // Let's fetch email from there if valid.
+            });
+
+            // To retrieve email: 
+            const { data: linkRecord } = await supabase.from('dashboard_access_links' as any).select('email').eq('id', linkId).single();
+            const emailToUse = selectedSchool.email || linkRecord?.email;
+
+            if (!emailToUse) throw new Error("Could not determine user email.");
+
+            const { error: loginError } = await tempClient.auth.signInWithPassword({
+                email: emailToUse,
+                password: oldPassword
+            });
+
+            if (loginError) throw new Error("Auth failed with stored password: " + loginError.message);
+
+            // 3. Update Password
+            const { error: updateError } = await tempClient.auth.updateUser({ password: newAdminSetPassword });
+            if (updateError) throw updateError;
+
+            // 4. Update Database Record (Sync new password)
+            const { encrypted: newEncrypted, keyStr: newKey } = await encryptPassword(newAdminSetPassword);
+
+            // Create NEW link/key pair to invalidate old one gracefully or just update?
+            // Safer to insert NEW link.
+            const { data: newLinkData, error: newLinkError } = await supabase
+                .from('dashboard_access_links' as any)
+                .insert([{
+                    user_id: selectedSchool.user_id || selectedSchool.id,
+                    email: emailToUse,
+                    encrypted_password: newEncrypted,
+                    access_token: 'manual_change', // Placeholder
+                    refresh_token: 'manual_change'
+                }])
+                .select('id')
+                .single();
+
+            if (newLinkError) throw newLinkError;
+
+            await supabase
+                .from('dashboard_access_keys' as any)
+                .insert([{
+                    link_id: newLinkData.id,
+                    encryption_key: newKey
+                }]);
+
+            await tempClient.auth.signOut();
+            toast.success("Password changed successfully!");
+            setIsChangePasswordOpen(false);
+
+        } catch (error: any) {
+            console.error("Change password error:", error);
+            toast.error(error.message || "Failed to change password");
+        } finally {
+            setChangePasswordLoading(false);
         }
     };
 
@@ -517,19 +620,46 @@ export default function AdminSchools() {
                     </DialogContent>
                 </Dialog>
 
-                {/* View Retrieved Link Dialog */}
+                {/* View Retrieved Credential Dialog */}
                 <Dialog open={isViewLinkOpen} onOpenChange={setIsViewLinkOpen}>
                     <DialogContent>
                         <DialogHeader>
-                            <DialogTitle>Access Link</DialogTitle>
+                            <DialogTitle>{viewMode === 'link' ? 'Access Link' : 'School Password'}</DialogTitle>
                             <DialogDescription>
-                                Here is the magic link for this school.
+                                {viewMode === 'link' ? 'Magic link for this school.' : 'Current decrypted password.'}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="flex items-center gap-2 mt-4">
-                            <Input value={retrievedLink} readOnly />
-                            <Button size="icon" variant="outline" onClick={() => copyToClipboard(retrievedLink)}>
+                            <Input value={viewMode === 'link' ? retrievedLink : retrievedPassword} readOnly type={viewMode === 'password' ? 'text' : 'text'} />
+                            <Button size="icon" variant="outline" onClick={() => copyToClipboard(viewMode === 'link' ? retrievedLink : retrievedPassword)}>
                                 <Copy className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Change Password Dialog */}
+                <Dialog open={isChangePasswordOpen} onOpenChange={setIsChangePasswordOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Change Password</DialogTitle>
+                            <DialogDescription>
+                                Override the password for {selectedSchool?.full_name}. This will create a new valid magic link as well.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">New Password</label>
+                                <Input
+                                    type="password"
+                                    value={newAdminSetPassword}
+                                    onChange={e => setNewAdminSetPassword(e.target.value)}
+                                    placeholder="Min 6 characters"
+                                />
+                            </div>
+                            <Button onClick={performChangePassword} disabled={changePasswordLoading} className="w-full">
+                                {changePasswordLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                Update Password
                             </Button>
                         </div>
                     </DialogContent>
@@ -642,10 +772,23 @@ export default function AdminSchools() {
                                                         <DropdownMenuItem onClick={() => openManageTemplates(school)}>
                                                             Manage Designs
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => viewSchoolLink(school)}>
+                                                        <DropdownMenuItem onClick={() => viewSchoolCredential(school, 'link')}>
                                                             <div className="flex items-center gap-2 w-full">
                                                                 <Copy className="h-4 w-4" />
                                                                 View Access Link
+                                                            </div>
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => viewSchoolCredential(school, 'password')}>
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <Eye className="h-4 w-4" />
+                                                                View Password
+                                                            </div>
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem onClick={() => openChangePassword(school)} className="text-primary focus:text-primary">
+                                                            <div className="flex items-center gap-2 w-full">
+                                                                <Lock className="h-4 w-4" />
+                                                                Change Password
                                                             </div>
                                                         </DropdownMenuItem>
                                                     </DropdownMenuContent>
