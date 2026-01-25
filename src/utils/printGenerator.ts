@@ -25,37 +25,72 @@ export const generateA4BatchPDF = async (
     dimensions?: { width: number; height: number } // Optional template dimensions to calculate ratio
 ) => {
     try {
+        // Determine Layout based on Card Orientation
+        // Default to Vertical Cards (Portrait) -> Landscape PDF if dimensions missing
+        let isCardLandscape = false;
+        if (dimensions && dimensions.width > dimensions.height) {
+            isCardLandscape = true;
+        }
+
+        const pdfOrientation = isCardLandscape ? 'portrait' : 'landscape';
+
         const doc = new jsPDF({
-            orientation: 'landscape',
+            orientation: pdfOrientation,
             unit: 'mm',
             format: 'a4'
         });
 
-        // 1. Define Slot Size (CR80 Standard Slot - Vertical/Portrait)
-        // Since PDF is Landscape, we print cards vertically upright.
-        const slotWidth = 54;
-        const slotHeight = 85.6;
+        let slotWidth, slotHeight, cols, rows, marginX, marginY, gapX, gapY;
 
-        // Grid: 5 cols x 2 rows
-        // Width: 297mm. 
-        // Cards: 5 * 54 = 270mm. 
-        // Gaps (4): 4 * 2 = 8mm. 
-        // Total Content Width: 278mm.
-        // Leftover: 297 - 278 = 19mm. Margin X: 9.5mm.
+        if (isCardLandscape) {
+            // Horizontal Cards -> Portrait A4
+            // Grid: 2 cols x 5 rows
+            // Page Width: 210mm. 
+            // Cards: 2 * 85.6 = 171.2mm
+            // Gaps: 1 * 5mm (center gap) = 5mm.
+            // Total: 176.2mm. Leftover: 33.8mm. Margin X: ~16.9mm.
 
-        // Height: 210mm.
-        // Cards: 2 * 85.6 = 171.2mm.
-        // Gaps (1): 1 * 5 = 5mm.
-        // Total Content Height: 176.2mm.
-        // Leftover: 210 - 176.2 = 33.8mm. Margin Y: 16.9mm.
+            // Page Height: 297mm.
+            // Cards: 5 * 54 = 270mm.
+            // Gaps: 4 * 2mm = 8mm.
+            // Total: 278mm. Leftover: 19mm. Margin Y: ~9.5mm.
 
-        const marginX = 9.5;
-        const marginY = 16.9;
-        const gapX = 2; // 2mm horizontal gap between columns
-        const gapY = 5; // 5mm vertical gap between rows
+            slotWidth = 85.6;
+            slotHeight = 54;
+            cols = 2;
+            rows = 5;
 
-        const cols = 5;
-        const rows = 2;
+            gapX = 5; // Gap between columns
+            gapY = 2; // Gap between rows
+
+            marginX = 16.9;
+            marginY = 9.5;
+        } else {
+            // Vertical Cards -> Landscape A4
+            // Grid: 5 cols x 2 rows
+            // Width: 297mm. 
+            // Cards: 5 * 54 = 270mm. 
+            // Gaps (4): 4 * 2 = 8mm. 
+            // Total Content Width: 278mm.
+            // Leftover: 297 - 278 = 19mm. Margin X: 9.5mm.
+
+            // Height: 210mm.
+            // Cards: 2 * 85.6 = 171.2mm.
+            // Gaps (1): 1 * 5 = 5mm.
+            // Total Content Height: 176.2mm.
+            // Leftover: 210 - 176.2 = 33.8mm. Margin Y: 16.9mm.
+            slotWidth = 54;
+            slotHeight = 85.6;
+            cols = 5;
+            rows = 2;
+
+            gapX = 2; // 2mm horizontal gap between columns
+            gapY = 5; // 5mm vertical gap between rows
+
+            marginX = 9.5;
+            marginY = 16.9;
+        }
+
         const cardsPerSheet = cols * rows;
 
         // Helper to add a sheet of faces
@@ -82,9 +117,15 @@ export const generateA4BatchPDF = async (
 
                 // Check Dimensions/Ratio for rotation
                 if (currentImgWidth && currentImgHeight && currentImgWidth > 0 && currentImgHeight > 0) {
-                    // Logic Flip: Slot is Portrait (54x85). 
-                    // If Image is Landscape (w > h), we must rotate it 90 degrees to fit.
-                    if (currentImgWidth > currentImgHeight) {
+                    // Rotation Logic:
+                    // If Layout is "Landscape Cards" (Portrait PDF), slot is Horizontal.
+                    // If Layout is "Portrait Cards" (Landscape PDF), slot is Vertical.
+
+                    // If Mismatch, rotate.
+                    const isSlotHorizontal = slotWidth > slotHeight;
+                    const isImageHorizontal = currentImgWidth > currentImgHeight;
+
+                    if (isSlotHorizontal !== isImageHorizontal) {
                         // Create rotation canvas
                         const canvas = document.createElement('canvas');
                         const ctx = canvas.getContext('2d');
@@ -112,7 +153,7 @@ export const generateA4BatchPDF = async (
 
                             finalImgToDraw = canvas.toDataURL('image/png');
 
-                            // Update current dimensions to reflect the rotated image's dimensions (Swap)
+                            // Swap dimensions for ratio calc
                             const temp = currentImgWidth;
                             currentImgWidth = currentImgHeight;
                             currentImgHeight = temp;
