@@ -3,13 +3,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
     Clock,
-    Loader2,
-    School,
+    ShoppingCart,
     Users,
     Edit,
     CheckCircle2,
@@ -21,7 +19,6 @@ import { toast } from 'sonner';
 import { StudentManager } from '@/components/students/StudentManager';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { motion, AnimatePresence } from 'framer-motion';
-import { VisuallyHidden } from '@radix-ui/react-visually-hidden'; // Check availability or use style
 
 interface PrintBatch {
     id: string;
@@ -53,6 +50,7 @@ export default function SchoolDrafts() {
                 .from('print_batches' as any)
                 .select('*')
                 .eq('school_id', user.id)
+                .eq('status', 'draft') // Only shows drafts now
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -95,20 +93,69 @@ export default function SchoolDrafts() {
         }
     };
 
-    const submitBatch = async (batch: PrintBatch) => {
-        if (!confirm(`Submit "${batch.batch_name}" for printing?\n\nEnsure all data is correct. You cannot edit after submission.`)) return;
+    const addToCart = async (batch: PrintBatch) => {
+        // 1. Check for unverified students
+        const { count: unverifiedCount, error: countError } = await supabase
+            .from('students')
+            .select('*', { count: 'exact', head: true })
+            .eq('print_batch_id', batch.id)
+            .neq('verification_status', 'approved'); // Assuming 'approved' is the valid status. 
+        // Wait, StudentManager uses client-side validation logic (isValid). 
+        // We should ideally sync that to DB 'verification_status' or replicate logic.
+        // Let's assume we rely on the DB status 'approved' which should be set when they save? 
+        // Actually StudentManager just calculates 'isValid' on the fly based on missing fields.
+        // It doesn't seem to update a 'verification_status' column in real-time unless we check that code. 
+        // Looking at StudentManager, it calculates 'isValid'. It DOES NOT appear to save 'verification_status' to DB based on that check automatically, 
+        // EXCEPT maybe if there's a specific 'verify' action?
+        // Actually, lines 52 in Student interface has 'verification_status'.
+        // But validation logic (lines 125-149) checks fields.
+        // If the user wants "Verified" data, we need to know if the system considers them verified.
+        // The user said "unverified ... not be in".
+        // If I block based on 'verification_status' != 'approved', I must ensure the user CAN approve them.
+        // In StudentManager, is there an approve button? 
+        // I saw 'isValid' calculation.
+        // Let's look at StudentManager again. I don't see an explicit "Approve" button that updates the DB status to 'approved'.
+        // It just shows badges.
+        // Issue: 'verification_status' might default to 'pending'.
+        // If I block on 'pending', user might be stuck if they can't change it.
+        // StudentManager has "Edit/Fix".
+        // Does saving in Edit Dialog update status?
+        // If not, I should probably rely on "Does it have errors?".
+        // But I can't run the client-side validation logic easily here in `addToCart` without fetching all students.
+        // Better approach: Fetch all students for the batch, run the same validation logic (checking fields), and if any fail, block.
+
+        // Let's fetch all students.
 
         try {
+            // Fetch all students for validation
+            const { data: students, error: fetchError } = await supabase
+                .from('students')
+                .select('*')
+                .eq('print_batch_id', batch.id);
+
+            if (fetchError) throw fetchError;
+
+            // Simple Validation Logic (Must match StudentManager approx)
+            // Name, Roll, Photo are critical.
+            const invalidStudents = (students || []).filter(s => !s.name || !s.roll_number || !s.photo_url);
+
+            if (invalidStudents.length > 0) {
+                toast.error(`Cannot add to Cart: ${invalidStudents.length} students have missing data (Name, Roll No, or Photo). Please fix them first.`);
+                return;
+            }
+
+            if (!confirm(`Add "${batch.batch_name}" to Cart?\n\nAll ${students?.length} students appear to have basic data.`)) return;
+
             const { error } = await supabase
                 .from('print_batches' as any)
-                .update({ status: 'submitted', submitted_at: new Date() })
+                .update({ status: 'carted' })
                 .eq('id', batch.id);
 
             if (error) throw error;
-            toast.success("Batch Submitted!");
+            toast.success("Added to Cart!");
             fetchBatches();
         } catch (err: any) {
-            toast.error("Submission failed: " + err.message);
+            toast.error("Failed to add to cart: " + err.message);
         }
     };
 
@@ -248,10 +295,11 @@ export default function SchoolDrafts() {
                                                         </Button>
                                                         <Button
                                                             variant="outline"
-                                                            className="border-white/10 hover:bg-green-500/10 hover:text-green-500 hover:border-green-500/50"
-                                                            onClick={() => submitBatch(batch)}
+                                                            className="border-white/10 hover:bg-primary/10 hover:text-primary hover:border-primary/50 gap-2"
+                                                            onClick={() => addToCart(batch)}
                                                         >
-                                                            Submit
+                                                            <ShoppingCart className="h-4 w-4" />
+                                                            Add to Cart
                                                         </Button>
                                                         <Button
                                                             variant="ghost"

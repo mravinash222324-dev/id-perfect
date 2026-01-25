@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  ShoppingCart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,12 @@ const navItems: NavItem[] = [
     title: 'Drafts',
     icon: Database,
     href: '/drafts',
+    roles: ['school', 'teacher'],
+  },
+  {
+    title: 'View Cart',
+    icon: ShoppingCart,
+    href: '/cart',
     roles: ['school', 'teacher'],
   },
   {

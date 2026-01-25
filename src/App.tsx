@@ -13,6 +13,7 @@ import DesignStudio from "./pages/DesignStudio";
 import IDCards from "./pages/IDCards";
 import PrintJobs from "./pages/PrintJobs";
 import SchoolDrafts from "./pages/SchoolDrafts";
+import SchoolCart from "./pages/SchoolCart";
 import Settings from "./pages/Settings";
 import AdminSchools from "./pages/AdminSchools";
 import MagicLogin from "./pages/MagicLogin";
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/id-cards" element={<IDCards />} />
             <Route path="/print-jobs" element={<PrintJobs />} />
             <Route path="/drafts" element={<SchoolDrafts />} />
+            <Route path="/cart" element={<SchoolCart />} />
             <Route path="/admin/schools" element={<AdminSchools />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />

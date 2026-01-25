@@ -58,9 +58,10 @@ interface Student {
 
 interface StudentManagerProps {
     batchId: string;
+    readOnly?: boolean;
 }
 
-export function StudentManager({ batchId }: StudentManagerProps) {
+export function StudentManager({ batchId, readOnly = false }: StudentManagerProps) {
     const [students, setStudents] = useState<Student[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -256,8 +257,8 @@ export function StudentManager({ batchId }: StudentManagerProps) {
             }
             const template = tmpls[0];
 
-            // Filter: Currently View
-            const studentsToPrint = filteredStudents;
+            // Filter: Enforce only VALID/VERIFIED students for Proof PDF
+            const studentsToPrint = filteredStudents.filter(s => s.isValid);
 
             if (studentsToPrint.length === 0) {
                 toast.error("No students to print in current view.");
@@ -335,7 +336,7 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                                 <TableHead className="w-[100px]">Photo</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Class/Dept</TableHead>
-                                <TableHead className="w-[50px]"></TableHead>
+                                {!readOnly && <TableHead className="w-[50px]"></TableHead>}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -409,28 +410,30 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                                             <span className="text-xs text-muted-foreground">{student.department}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
-                                                    <Edit className="h-4 w-4" />
-                                                    Edit / Fix
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    className="gap-2 text-destructive focus:text-destructive"
-                                                    onClick={() => handleDelete(student.id)}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                    Delete
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </TableCell>
+                                    {!readOnly && (
+                                        <TableCell>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
+                                                        <Edit className="h-4 w-4" />
+                                                        Edit / Fix
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        className="gap-2 text-destructive focus:text-destructive"
+                                                        onClick={() => handleDelete(student.id)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                        Delete
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </TableCell>
+                                    )}
                                 </TableRow>
                             ))}
                         </TableBody>
