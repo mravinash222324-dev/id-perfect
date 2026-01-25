@@ -35,6 +35,7 @@ export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const navigate = useNavigate();
   const { signIn, signUp, user } = useAuth();
 
@@ -55,10 +56,11 @@ export default function Auth() {
   });
 
   useEffect(() => {
-    if (user) {
+    // Only redirect if user exists AND we are not loading AND not showing the welcome animation
+    if (user && !isLoading && !showWelcome) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, isLoading, showWelcome]);
 
   useEffect(() => {
     if (isSchoolInvite && !isSignUp) {
@@ -69,13 +71,16 @@ export default function Auth() {
   const handleSignIn = async (data: SignInFormData) => {
     setIsLoading(true);
     const { error } = await signIn(data.email, data.password);
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       toast.error(error.message || 'Failed to sign in');
     } else {
-      toast.success('Welcome back!');
-      navigate('/dashboard');
+      // Don't set isLoading(false) here - keep it true to prevent the useEffect from redirecting immediately
+      setShowWelcome(true);
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 3000);
     }
   };
 
@@ -218,12 +223,8 @@ export default function Auth() {
               {/* Card Content (Form) */}
               <div className="w-full p-6 relative z-10">
                 {/* Tab Switcher (Subtle) */}
-                {!isSchoolInvite && (
-                  <div className="flex justify-center mb-6 gap-4 text-[10px] font-bold tracking-widest uppercase">
-                    <button onClick={() => setIsSignUp(false)} className={cn("pb-1 border-b-2 transition-colors", !isSignUp ? "border-primary text-white" : "border-transparent text-white/30 hover:text-white/60")}>Login</button>
-                    <button onClick={() => setIsSignUp(true)} className={cn("pb-1 border-b-2 transition-colors", isSignUp ? "border-primary text-white" : "border-transparent text-white/30 hover:text-white/60")}>Register</button>
-                  </div>
-                )}
+                {/* Tab Switcher Removed - Login Only */}
+
 
                 <AnimatePresence mode="wait">
                   {isSignUp ? (
@@ -340,6 +341,40 @@ export default function Auth() {
           </div>
         </motion.div>
       </div>
-    </div>
+      {/* Welcome Animation Overlay */}
+      <AnimatePresence>
+        {
+          showWelcome && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-[#000000] flex items-center justify-center flex-col"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.8, type: "spring" }}
+                className="flex items-center gap-4 mb-6"
+              >
+                <div className="relative">
+                  <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full animate-pulse" />
+                  <img src="/razid_watermark.png" alt="RAZ ID" className="w-40 h-40 object-contain relative z-10" />
+                </div>
+              </motion.div>
+
+              <motion.h2
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.6, duration: 0.5 }}
+                className="text-2xl text-white/60 font-medium tracking-[0.2em] uppercase"
+              >
+                Welcome to RAZ ID
+              </motion.h2>
+            </motion.div>
+          )
+        }
+      </AnimatePresence >
+    </div >
   );
 }
