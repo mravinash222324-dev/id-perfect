@@ -143,22 +143,26 @@ export default function AdminSchools() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newSchoolName, setNewSchoolName] = useState('');
     const [newSchoolEmail, setNewSchoolEmail] = useState('');
-    // Password is now auto-generated
+    const [newSchoolPassword, setNewSchoolPassword] = useState('');
     const [newSchoolTemplates, setNewSchoolTemplates] = useState<string[]>([]);
     const [creationLoading, setCreationLoading] = useState(false);
     const [isSuccessOpen, setIsSuccessOpen] = useState(false);
     const [createdLink, setCreatedLink] = useState('');
 
     const createSchoolAccount = async () => {
-        if (!newSchoolName || !newSchoolEmail) {
+        if (!newSchoolName || !newSchoolEmail || !newSchoolPassword) {
             toast.error("Please fill in all fields");
+            return;
+        }
+
+        if (newSchoolPassword.length < 6) {
+            toast.error("Password must be at least 6 characters");
             return;
         }
 
         setCreationLoading(true);
         try {
-            // Generate a secure random password
-            const newSchoolPassword = crypto.randomUUID() + crypto.randomUUID();
+            // Use manual password provided by admin
 
             // 1. Create a SECONDARY client
             const tempClient = createClient(
@@ -282,6 +286,7 @@ export default function AdminSchools() {
             // Reset Form but keep templates if needed? No, reset all.
             setNewSchoolName('');
             setNewSchoolEmail('');
+            setNewSchoolPassword('');
             setNewSchoolTemplates([]);
 
         } catch (error: any) {
@@ -449,6 +454,15 @@ export default function AdminSchools() {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Email</label>
                                 <Input value={newSchoolEmail} onChange={e => setNewSchoolEmail(e.target.value)} placeholder="admin@school.com" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Password</label>
+                                <Input
+                                    type="password"
+                                    value={newSchoolPassword}
+                                    onChange={e => setNewSchoolPassword(e.target.value)}
+                                    placeholder="Set account password"
+                                />
                             </div>
 
 
