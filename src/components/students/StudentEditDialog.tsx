@@ -21,9 +21,10 @@ interface StudentEditDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSave: () => void;
+    requiredFields?: string[];
 }
 
-export function StudentEditDialog({ student, open, onOpenChange, onSave }: StudentEditDialogProps) {
+export function StudentEditDialog({ student, open, onOpenChange, onSave, requiredFields = [] }: StudentEditDialogProps) {
     const [formData, setFormData] = useState<any>(student || {});
     const [loading, setLoading] = useState(false);
     const [template, setTemplate] = useState<any>(null);
@@ -416,9 +417,20 @@ export function StudentEditDialog({ student, open, onOpenChange, onSave }: Stude
                             <h3 className="text-sm font-semibold text-muted-foreground uppercase">Student Details</h3>
                             {Object.keys(formData).map((key) => {
                                 if (ignoredKeys.includes(key)) return null;
+
+                                const isRequired = requiredFields.includes(key);
+
+                                // Strict Mode: Only show If Required by Template/Mandatory.
+                                // If requiredFields is empty (legacy/fallback), we show all.
+                                if (requiredFields.length > 0 && !isRequired) {
+                                    return null;
+                                }
+
                                 return (
                                     <div key={key} className="space-y-2">
-                                        <Label>{formatLabel(key)}</Label>
+                                        <Label className={isRequired ? "text-primary font-bold" : ""}>
+                                            {formatLabel(key)} {isRequired && "*"}
+                                        </Label>
                                         {key === 'address' ? (
                                             <Textarea name={key} value={formData[key] || ''} onChange={handleChange} className="min-h-[80px]" />
                                         ) : (

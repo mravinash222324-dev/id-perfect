@@ -252,7 +252,7 @@ export default function UploadData() {
 
           const studentData = {
             roll_number: rollNumber,
-            name: row.name || row.student_name || row.full_name || 'Unknown',
+            name: row.name || row.student_name || row.full_name || '', // Changed from 'Unknown' to empty string for validation
             email: row.email || null,
             phone: row.phone || row.mobile || null,
             dob: row.dob || row.date_of_birth || null,

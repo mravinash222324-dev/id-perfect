@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
     Table,
     TableBody,
@@ -24,14 +26,17 @@ import {
     Search,
     Plus,
     MoreHorizontal,
-    Eye,
     Edit,
     Trash2,
     Users,
     Upload,
+    AlertCircle,
+    CheckCircle2,
+    XCircle
 } from 'lucide-react';
-import { format } from 'date-fns';
 import { StudentEditDialog } from '@/components/students/StudentEditDialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { extractTemplateVars } from '@/utils/cardRenderer';
 
 interface Student {
     id: string;
@@ -58,38 +63,119 @@ export function StudentManager({ batchId }: StudentManagerProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [editingStudent, setEditingStudent] = useState<Student | null>(null);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState('all');
+    const [requiredFields, setRequiredFields] = useState<string[]>([]);
 
     useEffect(() => {
         if (batchId) {
-            fetchStudents();
+            fetchData();
         }
     }, [batchId]);
 
-    const fetchStudents = async () => {
+    const fetchData = async () => {
         try {
             setLoading(true);
-            const { data, error } = await (supabase as any)
+
+            // 1. Fetch Students
+            const { data: studentsData, error: studentError } = await (supabase as any)
                 .from('students')
                 .select('*')
                 .eq('print_batch_id', batchId)
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
-            setStudents((data || []) as any[]);
+            if (studentError) throw studentError;
+
+            // 2. Fetch Template to determine validation rules
+            // We need school_id from batch or student. Let's get it from first student or auth?
+            // Safer to get from auth user as this is school dashboard
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data: tmpls } = await supabase
+                    .from('id_templates')
+                    .select('*')
+                    .contains('assigned_schools', [user.id])
+                    .limit(1);
+
+                if (tmpls && tmpls.length > 0) {
+                    const template = tmpls[0];
+
+                    const frontVars = extractTemplateVars((template as any).front_design);
+                    const backVars = extractTemplateVars((template as any).back_design);
+                    const allVars = new Set([...frontVars, ...backVars, 'name', 'roll_number', 'photo_url']); // Mandatory
+                    setRequiredFields(Array.from(allVars));
+                } else {
+                    // Fallback defaults if no template
+                    setRequiredFields(['name', 'roll_number', 'class', 'photo_url']);
+                }
+            }
+
+            setStudents((studentsData || []) as any[]);
         } catch (error) {
-            console.error('Error fetching students:', error);
-            toast.error('Failed to fetch students');
+            console.error('Error fetching data:', error);
+            toast.error('Failed to fetch batch data');
         } finally {
             setLoading(false);
         }
     };
 
-    const filteredStudents = students.filter(
-        (student) =>
+    const validateStudent = (student: Student) => {
+        const errors: string[] = [];
+
+        // Always Required
+        if (!student.name || student.name.trim() === '') errors.push('Name');
+        if (!student.roll_number || student.roll_number.trim() === '') errors.push('Roll Number');
+        if (!student.photo_url) errors.push('Photo');
+
+        // Dynamic Validation based on Template
+        // We skip name/roll/photo as they are handled above
+        requiredFields.forEach(field => {
+            if (['name', 'roll_number', 'photo_url', 'id', 'created_at'].includes(field)) return;
+
+            // For other fields like class, department, blood_group, phone etc.
+            // Check if they are empty
+            const val = (student as any)[field];
+            if (!val || String(val).trim() === '') {
+                // Format field name for UI
+                const label = field.charAt(0).toUpperCase() + field.slice(1).replace('_', ' ');
+                errors.push(label);
+            }
+        });
+
+        return errors;
+    };
+
+    const processedStudents = useMemo(() => {
+        return students.map(student => {
+            const errors = validateStudent(student);
+            return {
+                ...student,
+                isValid: errors.length === 0,
+                errors
+            };
+        });
+    }, [students, requiredFields]);
+
+    const filteredStudents = processedStudents.filter(student => {
+        // 1. Search Filter
+        const matchesSearch =
             student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             student.roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            student.email?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+            student.email?.toLowerCase().includes(searchQuery.toLowerCase());
+
+        if (!matchesSearch) return false;
+
+        // 2. Tab Filter
+        if (activeTab === 'verified') return student.isValid;
+        if (activeTab === 'unverified') return !student.isValid;
+        return true;
+    });
+
+    const stats = useMemo(() => {
+        const total = processedStudents.length;
+        const verified = processedStudents.filter(s => s.isValid).length;
+        const unverified = total - verified;
+        return { total, verified, unverified };
+    }, [processedStudents]);
 
     const handleDelete = async (id: string) => {
         if (!confirm('Are you sure you want to delete this student?')) return;
@@ -144,9 +230,9 @@ export function StudentManager({ batchId }: StudentManagerProps) {
 
     return (
         <div className="space-y-4">
-            {/* Search Bar - Simplified for Modal */}
-            <div className="flex items-center gap-2">
-                <div className="relative flex-1">
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                {/* Search Bar */}
+                <div className="relative flex-1 w-full md:max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Search students..."
@@ -155,16 +241,21 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                         className="pl-9"
                     />
                 </div>
-                <Button size="sm" className="gradient-primary gap-2" onClick={() => {
-                    // Include Add Student logic? Or just rely on CSV?
-                    // User didn't explicitly ask for Add, but it's good to have.
-                    // For now, let's keep it simple or minimal.
-                    // Let's hide Add for now as the user focused on Review/Batch Upload.
-                    toast.info("To add students, please use Batch Upload.");
-                }}>
-                    <Plus className="h-4 w-4" />
-                    Add
-                </Button>
+
+                {/* Tabs for Filtering */}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full md:w-auto">
+                    <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
+                        <TabsTrigger value="all">
+                            All <span className="ml-2 text-xs bg-muted-foreground/20 px-1.5 rounded-full">{stats.total}</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="verified" className="data-[state=active]:text-emerald-500">
+                            Verified <span className="ml-2 text-xs bg-emerald-500/20 text-emerald-500 px-1.5 rounded-full">{stats.verified}</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="unverified" className="data-[state=active]:text-rose-500">
+                            Unverified <span className="ml-2 text-xs bg-rose-500/20 text-rose-500 px-1.5 rounded-full">{stats.unverified}</span>
+                        </TabsTrigger>
+                    </TabsList>
+                </Tabs>
             </div>
 
             {loading ? (
@@ -176,10 +267,10 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                     <Table>
                         <TableHeader className="sticky top-0 bg-background z-10">
                             <TableRow className="bg-muted/50">
-                                <TableHead>Student</TableHead>
-                                <TableHead className="w-[50px]">Photo</TableHead>
-                                <TableHead>Roll Number</TableHead>
-                                <TableHead>Class</TableHead>
+                                <TableHead className="w-[300px]">Student Details</TableHead>
+                                <TableHead className="w-[100px]">Photo</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Class/Dept</TableHead>
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -188,7 +279,7 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                                 <TableRow key={student.id} className="hover:bg-muted/30">
                                     <TableCell>
                                         <div className="flex items-center gap-3">
-                                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                                            <div className={`h-10 w-10 rounded-full flex items-center justify-center overflow-hidden border ${student.isValid ? 'border-border' : 'border-rose-500/50 bg-rose-500/10'}`}>
                                                 {student.photo_url ? (
                                                     <img
                                                         src={student.photo_url}
@@ -196,22 +287,27 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                                                         className="h-full w-full object-cover"
                                                     />
                                                 ) : (
-                                                    <Users className="h-4 w-4 text-primary" />
+                                                    <Users className={`h-5 w-5 ${student.isValid ? 'text-primary' : 'text-rose-500'}`} />
                                                 )}
                                             </div>
                                             <div>
-                                                <p className="font-medium text-sm">{student.name}</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {student.email || 'No email'}
-                                                </p>
+                                                <p className="font-medium text-sm">{student.name || <span className="text-rose-500 italic">No Name</span>}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono text-xs text-muted-foreground">{student.roll_number || 'No ID'}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
-                                            <Label htmlFor={`photo-${student.id}`} className="cursor-pointer hover:bg-muted p-1 rounded-md">
-                                                <Upload className="h-3 w-3 text-muted-foreground" />
-                                            </Label>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Label htmlFor={`photo-${student.id}`} className={`cursor-pointer p-2 rounded-md hover:bg-muted transition-colors ${!student.photo_url ? 'animate-pulse bg-rose-500/10 text-rose-500' : ''}`}>
+                                                        <Upload className="h-4 w-4" />
+                                                    </Label>
+                                                </TooltipTrigger>
+                                                <TooltipContent>Upload Photo</TooltipContent>
+                                            </Tooltip>
                                             <Input
                                                 id={`photo-${student.id}`}
                                                 type="file"
@@ -225,21 +321,41 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                                             />
                                         </div>
                                     </TableCell>
-                                    <TableCell className="font-mono text-xs">
-                                        {student.roll_number}
+                                    <TableCell>
+                                        {student.isValid ? (
+                                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 gap-1 pl-1">
+                                                <CheckCircle2 className="h-3 w-3" /> Verified
+                                            </Badge>
+                                        ) : (
+                                            <div className="flex flex-col gap-1 items-start">
+                                                <Badge variant="outline" className="bg-rose-500/10 text-rose-500 border-rose-500/20 gap-1 pl-1 mb-1">
+                                                    <XCircle className="h-3 w-3" /> Incomplete
+                                                </Badge>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {student.errors.map(err => (
+                                                        <span key={err} className="text-[10px] font-bold text-rose-400 bg-rose-500/5 px-1 rounded">{err}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </TableCell>
-                                    <TableCell className="text-xs">{student.class || '-'}</TableCell>
+                                    <TableCell className="text-sm">
+                                        <div className="flex flex-col">
+                                            <span>{student.class || '-'}</span>
+                                            <span className="text-xs text-muted-foreground">{student.department}</span>
+                                        </div>
+                                    </TableCell>
                                     <TableCell>
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6">
-                                                    <MoreHorizontal className="h-3 w-3" />
+                                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <MoreHorizontal className="h-4 w-4" />
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
                                                     <Edit className="h-4 w-4" />
-                                                    Edit
+                                                    Edit / Fix
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem
                                                     className="gap-2 text-destructive focus:text-destructive"
@@ -257,8 +373,9 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                     </Table>
                 </div>
             ) : (
-                <div className="text-center py-12">
-                    <p className="text-sm text-muted-foreground">No students found in this batch.</p>
+                <div className="text-center py-16 border rounded-lg border-dashed">
+                    <p className="text-muted-foreground">No students found in this category.</p>
+                    {searchQuery && <Button variant="link" onClick={() => setSearchQuery('')}>Clear Search</Button>}
                 </div>
             )}
 
@@ -267,8 +384,9 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                     student={editingStudent}
                     open={isEditOpen}
                     onOpenChange={setIsEditOpen}
+                    requiredFields={requiredFields}
                     onSave={() => {
-                        fetchStudents();
+                        fetchData();
                     }}
                 />
             )}

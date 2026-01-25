@@ -200,3 +200,38 @@ export async function performReplacements(canvas: fabric.StaticCanvas | fabric.C
         }
     }
 }
+
+/**
+ * Extracts all unique variable keys used in the design (e.g. {{name}}, data.key="class")
+ */
+export const extractTemplateVars = (designJson: any): string[] => {
+    const keys = new Set<string>();
+
+    let source = designJson;
+    if (typeof source === 'string') {
+        try { source = JSON.parse(source); } catch (e) { return []; }
+    }
+
+    if (!source || !source.objects) return [];
+
+    source.objects.forEach((obj: any) => {
+        // 1. Regex match for {{key}} in text
+        if ((obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'text') && obj.text) {
+            const matches = obj.text.match(/{{(.*?)}}/g);
+            if (matches) {
+                matches.forEach((m: string) => {
+                    const key = m.replace('{{', '').replace('}}', '').trim();
+                    if (key) keys.add(key);
+                });
+            }
+        }
+
+        // 2. Data binding (obj.data.key)
+        if (obj.data?.key || obj.key) {
+            const key = obj.data?.key || obj.key;
+            if (key) keys.add(key);
+        }
+    });
+
+    return Array.from(keys);
+};

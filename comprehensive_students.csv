@@ -1,9 +1,9 @@
-roll_number,name,email,phone,class,department,batch,blood_group,dob,address,photo_ref
-STU101,Aarav Patel,aarav@example.com,9876543210,Class 10A,Science,2024,O+,2008-05-15,"123 MG Road, Mumbai",1
-STU102,Sanya Sharma,sanya@example.com,9876543211,Class 10A,Science,2024,A+,2008-08-20,"456 Park Street, Delhi",2
-STU103,Rohan Gupta,rohan@example.com,9876543212,Class 10A,Science,2024,B+,2008-02-10,"789 Lake View, Bangalore",3
-STU201,Ishaan Kumar,ishaan@example.com,9876543213,Class 10B,Commerce,2024,AB+,2008-11-05,"101 Pine Ave, Chennai",4
-STU202,Mira Singh,mira@example.com,9876543214,Class 10B,Commerce,2024,O-,2008-07-25,"202 Oak Lane, Hyderabad",5
-STU203,Vihaan Reddy,vihaan@example.com,9876543215,Class 10B,Commerce,2024,B-,2008-09-12,"303 Cedar Dr, Pune",6
-STU301,Ananya Das,ananya@example.com,9876543216,Class 11A,Arts,2023,A-,2007-03-30,"404 Elm St, Kolkata",7
-STU302,Arjun Nair,arjun@example.com,9876543217,Class 11A,Arts,2023,AB-,2007-12-18,"505 Maple Rd, Kochi",8
+roll_number,name,class,department,email,phone,blood_group,dob,guardian_name,photo_ref
+STU-001,Aarav Patel,10,Science,aarav.p@school.com,9876543210,B+,2008-04-12,Rajesh Patel,1.jpg
+STU-002,,10,Science,zara.k@school.com,9876543211,O+,2008-08-23,Amir Khan,2.jpg
+STU-003,Rohan Sharma,,Commerce,rohan.s@school.com,9876543212,A+,2007-12-05,Vijay Sharma,3.jpg
+STU-004,,,Commerce,ishita.g@school.com,9876543213,AB+,2007-06-30,Sanjay Gupta,4.jpg
+STU-005,Vihaan Singh,12,Arts,vihaan.s@school.com,9876543214,O-,2006-02-14,Vikram Singh,5.jpg
+STU-006,,12,Arts,ananya.r@school.com,9876543215,B-,2006-09-18,David Redding,6.jpg
+STU-007,Kabir Das,,General,kabir.d@school.com,9876543216,A-,2009-03-25,Amit Das,7.jpg
+STU-008,Meera Iyer,9,General,meera.i@school.com,9876543217,AB-,2009-11-08,Krishnan Iyer,8.jpg
