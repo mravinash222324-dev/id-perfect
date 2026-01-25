@@ -19,8 +19,9 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { StudentManager } from '@/components/students/StudentManager';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'; // Check availability or use style
 
 interface PrintBatch {
     id: string;
@@ -155,6 +156,8 @@ export default function SchoolDrafts() {
 
             <Dialog open={!!reviewBatchId} onOpenChange={(open) => !open && setReviewBatchId(null)}>
                 <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <DialogTitle className="sr-only">Batch Details</DialogTitle>
+                    <DialogDescription className="sr-only">Review and edit student data for this batch</DialogDescription>
                     <div className="flex-1 overflow-auto p-1">
                         {reviewBatchId && (
                             <div className="space-y-4">

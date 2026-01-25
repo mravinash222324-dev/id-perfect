@@ -32,11 +32,14 @@ import {
     Upload,
     AlertCircle,
     CheckCircle2,
-    XCircle
+    XCircle,
+    FileDown,
+    Loader2
 } from 'lucide-react';
 import { StudentEditDialog } from '@/components/students/StudentEditDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { extractTemplateVars } from '@/utils/cardRenderer';
+import { generateBatchProofPDF } from '@/utils/pdfGenerator';
 
 interface Student {
     id: string;
@@ -228,6 +231,54 @@ export function StudentManager({ batchId }: StudentManagerProps) {
         setIsEditOpen(true);
     };
 
+    const [generatingPdf, setGeneratingPdf] = useState(false);
+
+    // ... existing code ...
+
+    const handleDownloadProof = async () => {
+        try {
+            setGeneratingPdf(true);
+            toast.info("Generating Proof PDF... This may take a moment.");
+
+            // Get Template
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("No user found");
+
+            const { data: tmpls } = await supabase
+                .from('id_templates')
+                .select('*')
+                .contains('assigned_schools', [user.id])
+                .limit(1);
+
+            if (!tmpls || tmpls.length === 0) {
+                toast.error("No ID Card Template assigned. Cannot generate proof.");
+                return;
+            }
+            const template = tmpls[0];
+
+            // Filter: Currently View
+            const studentsToPrint = filteredStudents;
+
+            if (studentsToPrint.length === 0) {
+                toast.error("No students to print in current view.");
+                return;
+            }
+
+            const pdf = await generateBatchProofPDF(studentsToPrint, template, {
+                watermarkUrl: '/razid_watermark.png'
+            });
+
+            pdf.save(`Proof_Batch_${batchId}_${activeTab}.pdf`);
+            toast.success("PDF Downloaded successfully!");
+
+        } catch (error) {
+            console.error("Error generating PDF", error);
+            toast.error("Failed to generate PDF");
+        } finally {
+            setGeneratingPdf(false);
+        }
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
@@ -242,20 +293,33 @@ export function StudentManager({ batchId }: StudentManagerProps) {
                     />
                 </div>
 
-                {/* Tabs for Filtering */}
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full md:w-auto">
-                    <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
-                        <TabsTrigger value="all">
-                            All <span className="ml-2 text-xs bg-muted-foreground/20 px-1.5 rounded-full">{stats.total}</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="verified" className="data-[state=active]:text-emerald-500">
-                            Verified <span className="ml-2 text-xs bg-emerald-500/20 text-emerald-500 px-1.5 rounded-full">{stats.verified}</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="unverified" className="data-[state=active]:text-rose-500">
-                            Unverified <span className="ml-2 text-xs bg-rose-500/20 text-rose-500 px-1.5 rounded-full">{stats.unverified}</span>
-                        </TabsTrigger>
-                    </TabsList>
-                </Tabs>
+                <div className="flex items-center gap-2">
+                    {/* PDF Dowload Button */}
+                    <Button
+                        variant="outline"
+                        onClick={handleDownloadProof}
+                        disabled={generatingPdf || loading}
+                        className="gap-2"
+                    >
+                        {generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                        Proof PDF
+                    </Button>
+
+                    {/* Tabs for Filtering */}
+                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full md:w-auto">
+                        <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
+                            <TabsTrigger value="all">
+                                All <span className="ml-2 text-xs bg-muted-foreground/20 px-1.5 rounded-full">{stats.total}</span>
+                            </TabsTrigger>
+                            <TabsTrigger value="verified" className="data-[state=active]:text-emerald-500">
+                                Verified <span className="ml-2 text-xs bg-emerald-500/20 text-emerald-500 px-1.5 rounded-full">{stats.verified}</span>
+                            </TabsTrigger>
+                            <TabsTrigger value="unverified" className="data-[state=active]:text-rose-500">
+                                Unverified <span className="ml-2 text-xs bg-rose-500/20 text-rose-500 px-1.5 rounded-full">{stats.unverified}</span>
+                            </TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+                </div>
             </div>
 
             {loading ? (
