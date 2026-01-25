@@ -1242,6 +1242,39 @@ export const CanvasEditor = forwardRef<CanvasEditorRef, CanvasEditorProps>(({ in
                                             onValueChange={(vals) => updateProperty('opacity', vals[0] / 100)}
                                         />
                                     </div>
+
+                                    {(selectedObject.type === 'rect' || selectedObject.type === 'image' || (selectedObject as any).isPhotoPlaceholder) && (
+                                        <div className="space-y-2 pt-2 border-t border-white/5">
+                                            <div className="flex justify-between text-xs text-muted-foreground">
+                                                <span>Corner Radius</span>
+                                                <span>{Math.round((selectedObject as any).rx || 0)}px</span>
+                                            </div>
+                                            <Slider
+                                                value={[(selectedObject as any).rx || 0]}
+                                                max={100}
+                                                step={1}
+                                                className="py-1"
+                                                onValueChange={(vals) => {
+                                                    const val = vals[0];
+                                                    // Standard update
+                                                    updateProperty('rx', val);
+                                                    updateProperty('ry', val);
+
+                                                    // Special handling for Photo Placeholder Groups
+                                                    if ((selectedObject as any).isPhotoPlaceholder && selectedObject.type === 'group') {
+                                                        const group = selectedObject as fabric.Group;
+                                                        group.getObjects().forEach(obj => {
+                                                            if (obj.type === 'rect') {
+                                                                obj.set('rx', val);
+                                                                obj.set('ry', val);
+                                                            }
+                                                        });
+                                                        canvas?.requestRenderAll();
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

@@ -125,7 +125,7 @@ export function AppSidebar() {
                 className="flex flex-col whitespace-nowrap"
               >
                 <span className="text-xl font-bold tracking-tight text-white">
-                  RAZ <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">ID</span>
+                  RAZ <span className="text-red-500">ID</span>
                 </span>
                 <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Card Systems</span>
               </motion.div>
