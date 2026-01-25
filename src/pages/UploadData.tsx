@@ -204,8 +204,11 @@ export default function UploadData() {
     return rows;
   };
 
-  const handleUpload = async () => {
-    if (!file) return;
+  const handleUnifiedProcess = async () => {
+    if (!file) {
+      toast.error('Please upload a CSV file');
+      return;
+    }
     if (!batchName.trim()) {
       toast.error("Please enter a batch name");
       return;
@@ -215,41 +218,40 @@ export default function UploadData() {
     setUploadResult(null);
 
     try {
-      const text = await file.text();
-      const rows = parseCSV(text);
-
-      if (rows.length === 0) {
-        toast.error('No valid data found in CSV');
-        return;
-      }
-
-      // 1. Create Print Batch Record
+      // 1. Create Batch
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: batchData, error: batchError } = await supabase
         .from('print_batches' as any)
         .insert([{
           batch_name: batchName,
-          school_id: (await supabase.auth.getUser()).data.user?.id,
+          school_id: user?.id,
           status: 'draft'
         }])
         .select()
         .single();
 
-      if (batchError) {
-        toast.error("Failed to crate batch: " + batchError.message);
-        setIsUploading(false);
-        return;
-      }
-
+      if (batchError) throw batchError;
       const batchId = (batchData as any).id;
 
+      // 2. Process CSV
+      const text = await file.text();
+      const rows = parseCSV(text);
       let success = 0;
       let failed = 0;
       const errors: string[] = [];
 
+      // Create lookup maps for photo matching
+      const rollMap = new Map();
+      const refMap = new Map();
+
+      // Insert Students
       for (const row of rows) {
         try {
+          const rollNumber = row.roll_number || row.id || row.student_id || `STU-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+          const photoRef = row.photo_ref || row.photo_name || row.filename || row.image_name || null;
+
           const studentData = {
-            roll_number: row.roll_number || row.id || row.student_id || `STU-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            roll_number: rollNumber,
             name: row.name || row.student_name || row.full_name || 'Unknown',
             email: row.email || null,
             phone: row.phone || row.mobile || null,
@@ -262,40 +264,77 @@ export default function UploadData() {
             guardian_name: row.guardian_name || row.parent_name || null,
             address: row.address || null,
             verification_status: 'approved',
-            school_id: (await supabase.auth.getUser()).data.user?.id,
-            photo_ref: row.photo_ref || row.photo_name || row.filename || row.image_name || null // Capture photo ref
+            school_id: user?.id,
+            photo_ref: photoRef
           };
 
-          const { error } = await supabase.from('students').insert(studentData);
+          const { data: insertedStudent, error } = await supabase
+            .from('students')
+            .insert(studentData)
+            .select('id, roll_number, photo_ref')
+            .single();
 
           if (error) {
-            if (error.code === '23505') {
-              errors.push(`Duplicate roll number: ${studentData.roll_number}`);
-            } else {
-              errors.push(`Row ${success + failed + 1}: ${error.message}`);
-            }
+            errors.push(`Row ${success + failed + 1}: ${error.message}`);
             failed++;
           } else {
             success++;
+            // Populate maps for photo matching
+            if (insertedStudent) {
+              if (insertedStudent.roll_number) rollMap.set(String(insertedStudent.roll_number).toLowerCase().trim(), insertedStudent.id);
+              if (insertedStudent.photo_ref) refMap.set(String(insertedStudent.photo_ref).toLowerCase().trim(), insertedStudent.id);
+            }
           }
         } catch (err) {
           failed++;
-          errors.push(`Row ${success + failed}: Parse error`);
+          errors.push(`Row parsing error`);
+        }
+      }
+
+      // 3. Process Photos
+      let photosMatched = 0;
+      if (photoFiles.length > 0) {
+        toast.info("Uploading and matching photos...");
+
+        for (const pFile of photoFiles) {
+          const name = pFile.name;
+          const nameKey = name.toLowerCase().trim();
+          const nameNoExt = name.substring(0, name.lastIndexOf('.')) || name;
+          const nameNoExtLower = nameNoExt.toLowerCase().trim();
+
+          let studentId = refMap.get(nameKey) || refMap.get(nameNoExtLower) || rollMap.get(nameKey) || rollMap.get(nameNoExtLower);
+
+          if (studentId) {
+            try {
+              const fileExt = name.split('.').pop();
+              const storagePath = `${studentId}-${Date.now()}.${fileExt}`;
+              await supabase.storage.from('student-photos').upload(storagePath, pFile, { upsert: true });
+              const { data: { publicUrl } } = supabase.storage.from('student-photos').getPublicUrl(storagePath);
+
+              await supabase.from('students').update({ photo_url: publicUrl }).eq('id', studentId);
+              photosMatched++;
+            } catch (e) {
+              console.error("Photo upload failed", e);
+            }
+          }
         }
       }
 
       setUploadResult({ success, failed, errors });
+      toast.success(`Batch Created! Imported ${success} students, Matched ${photosMatched} photos.`);
 
-      if (success > 0) {
-        toast.success(`Successfully imported ${success} student(s) into batch "${batchName}"`);
-        fetchBatches();
-      }
-      if (failed > 0) {
-        toast.warning(`${failed} record(s) failed to import`);
-      }
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Failed to process file');
+      // Clear Form
+      setFile(null);
+      setPhotoFiles([]);
+      setBatchName('');
+      fetchBatches();
+
+      // Navigation to Drafts will happen via the user clicking the new "Drafts" link or we can auto-redirect
+      // For now, let's just show success
+
+    } catch (error: any) {
+      console.error('Process error:', error);
+      toast.error('Failed to create batch: ' + error.message);
     } finally {
       setIsUploading(false);
     }
@@ -305,127 +344,6 @@ export default function UploadData() {
     if (e.target.files) {
       setPhotoFiles(Array.from(e.target.files));
     }
-  };
-
-  const handleBulkPhotoUpload = async () => {
-    console.log('[BatchUpload] Button Clicked. Files selected:', photoFiles.length);
-    if (photoFiles.length === 0) {
-      console.warn('[BatchUpload] No files selected.');
-      return;
-    }
-
-    setPhotoUploadProgress({ processed: 0, total: photoFiles.length, success: 0, failed: 0 });
-
-    // We need to fetch all candidates to match against
-    // Optimization: Just fetch students for recent batches or ALL approved students for this school?
-    // Let's matching against ALL students for this school to be safe.
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Fetch minimal student data for matching
-    const { data: studentsData, error: stuError } = await (supabase as any)
-      .from('students')
-      .select('id, roll_number, photo_ref')
-      .eq('school_id', user.id);
-
-    if (stuError || !studentsData) {
-      toast.error("No students found to match photos against.");
-      setPhotoUploadProgress(null);
-      return;
-    }
-
-    // Explicit cast to avoid type inference issues
-    const students = studentsData as any[];
-
-    if (!students) {
-      toast.error("No students found to match photos against.");
-      setPhotoUploadProgress(null);
-      return;
-    }
-
-    // Create lookup maps
-    const rollMap = new Map();
-    const refMap = new Map();
-
-    console.log(`[BatchUpload] Matching against ${students.length} students from DB.`);
-
-    students.forEach(s => {
-      if (s.roll_number) rollMap.set(String(s.roll_number).toLowerCase().trim(), s.id);
-      if (s.photo_ref) refMap.set(String(s.photo_ref).toLowerCase().trim(), s.id);
-    });
-
-    console.log('[BatchUpload] RefMap Keys (Sample):', Array.from(refMap.keys()).slice(0, 10));
-
-    let successCount = 0;
-    let failCount = 0;
-
-    // Process files
-    for (const file of photoFiles) {
-      const name = file.name; // e.g. "IMG_123.jpg"
-      const nameKey = name.toLowerCase().trim();
-      // Handle extension stripping robustly
-      const nameNoExt = name.substring(0, name.lastIndexOf('.')) || name;
-      const nameNoExtLower = nameNoExt.toLowerCase().trim();
-
-      console.log(`[BatchUpload] Processing: ${name} -> Key: ${nameKey}, NoExt: ${nameNoExtLower}`);
-
-      // Try to find match
-      // 1. Exact 'photo_ref' match (e.g. csv had "IMG_123.jpg")
-      let studentId = refMap.get(nameKey);
-
-      // 2. 'photo_ref' match without extension (e.g. csv had "IMG_123" or "1")
-      if (!studentId) studentId = refMap.get(nameNoExtLower);
-
-      // 3. Roll number match (exact filename)
-      if (!studentId) studentId = rollMap.get(nameKey);
-
-      // 4. Roll number match (no extension)
-      if (!studentId) studentId = rollMap.get(nameNoExtLower);
-
-      if (studentId) {
-        try {
-          // Upload to Storage
-          const fileExt = name.split('.').pop();
-          const storagePath = `${studentId}-${Date.now()}.${fileExt}`;
-
-          const { error: uploadErr } = await supabase.storage
-            .from('student-photos')
-            .upload(storagePath, file, { upsert: true });
-
-          if (uploadErr) throw uploadErr;
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('student-photos')
-            .getPublicUrl(storagePath);
-
-          // Update Student Record
-          await supabase
-            .from('students')
-            .update({ photo_url: publicUrl })
-            .eq('id', studentId);
-
-          successCount++;
-        } catch (err) {
-          console.error(`Failed to upload ${name}`, err);
-          failCount++;
-        }
-      } else {
-        // No match found
-        failCount++;
-      }
-
-      setPhotoUploadProgress(prev => ({
-        ...prev!,
-        processed: prev!.processed + 1,
-        success: successCount,
-        failed: failCount
-      }));
-    }
-
-    toast.success(`Photos Processed: ${successCount} matched & uploaded, ${failCount} unmatched.`);
-    setPhotoFiles([]);
-    setPhotoUploadProgress(null);
   };
 
   // ... deleteBatch, downloadTemplate ... //
@@ -540,8 +458,8 @@ export default function UploadData() {
     <DashboardLayout>
       <div className="space-y-8 animate-in fade-in duration-500">
         <PageHeader
-          title="Student Data Management"
-          description="Import and manage your student records with ease."
+          title="New Card Batch"
+          description="Import student data and manage ID card photos."
           className="mb-8"
         >
           <div className="flex items-center gap-3">
@@ -567,119 +485,63 @@ export default function UploadData() {
           {/* Left Column: Actions (Uploads) */}
           <div className="lg:col-span-12 xl:col-span-8 space-y-8">
 
-            {/* Quick Actions Grid */}
-            <div className="grid md:grid-cols-2 gap-6">
-
-              {/* CSV Upload Card */}
-              <Card className="relative overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl hover:shadow-primary/20 transition-all duration-300 group">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                <CardHeader className="relative z-10">
-                  <div className="h-12 w-12 rounded-2xl bg-primary/20 border border-primary/20 flex items-center justify-center mb-4 shadow-lg shadow-primary/10 group-hover:scale-110 transition-transform duration-300">
-                    <FileSpreadsheet className="h-6 w-6 text-primary" />
+            {/* Unified Upload Card */}
+            <Card className="relative overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl hover:shadow-primary/20 transition-all duration-300 group">
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <CardHeader className="relative z-10">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-10 w-10 rounded-xl bg-primary/20 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/10">
+                    <FileSpreadsheet className="h-5 w-5 text-primary" />
                   </div>
-                  <CardTitle className="text-xl font-bold text-white">Import CSV Batch</CardTitle>
-                  <CardDescription className="text-muted-foreground">
-                    Upload your student data (CSV).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="relative z-10">
+                  <div>
+                    <CardTitle className="text-xl font-bold text-white">Create New Batch</CardTitle>
+                    <CardDescription className="text-muted-foreground">Upload CSV and matched photos in one go.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6 relative z-10">
+                {/* Batch Name Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="batch-name" className="text-sm font-medium text-slate-300">Batch Name</Label>
+                  <Input
+                    id="batch-name"
+                    value={batchName}
+                    onChange={(e) => setBatchName(e.target.value)}
+                    placeholder="e.g. Class 10 - 2024"
+                    className="h-11 bg-black/20 border-white/10 text-white focus:ring-primary/50"
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  {/* CSV Upload Zone */}
                   <div
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     onClick={() => document.getElementById('file-upload')?.click()}
                     className={cn(
-                      'relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 cursor-pointer group/drop',
-                      isDragging
-                        ? 'border-primary bg-primary/10 scale-[1.02]'
-                        : 'border-white/10 hover:border-primary/50 hover:bg-white/5',
-                      file && 'border-emerald-500/50 bg-emerald-500/10'
+                      'relative border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300 cursor-pointer group/drop min-h-[160px] flex flex-col items-center justify-center',
+                      file ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/10 hover:border-primary/50 hover:bg-white/5'
                     )}
                   >
                     {file ? (
-                      <div className="space-y-4 animate-in zoom-in-50 duration-300">
-                        <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-full bg-emerald-500/20 shadow-inner border border-emerald-500/30">
-                          <CheckCircle className="h-8 w-8 text-emerald-400" />
-                        </div>
-                        <div>
-                          <p className="font-semibold text-lg text-white">{file.name}</p>
-                          <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(2)} KB</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFile(null);
-                            setUploadResult(null);
-                            setBatchName('');
-                          }}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-950/30"
-                        >
-                          Cancel
-                        </Button>
+                      <div className="space-y-2 animate-in zoom-in-50 duration-300">
+                        <CheckCircle className="h-8 w-8 text-emerald-400 mx-auto" />
+                        <p className="font-semibold text-white text-sm">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
-                        <div className="h-20 w-full flex items-center justify-center">
-                          <div className="relative">
-                            <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl opacity-20 animate-pulse" />
-                            <Upload className="relative h-10 w-10 text-primary/70 group-hover/drop:text-primary transition-colors duration-300" />
-                          </div>
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-300">
-                            Drag & drop or <span className="text-primary font-semibold hover:underline">browse</span>
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">Supports .csv files</p>
-                        </div>
-                        <Input
-                          id="file-upload"
-                          type="file"
-                          accept=".csv"
-                          onChange={handleFileChange}
-                          className="hidden"
-                        />
+                      <div className="space-y-2">
+                        <FileSpreadsheet className="h-8 w-8 text-primary/50 mx-auto group-hover/drop:text-primary transition-colors" />
+                        <p className="font-medium text-sm text-slate-300">Upload CSV</p>
+                        <p className="text-xs text-muted-foreground">Drag & drop or click</p>
                       </div>
                     )}
+                    <Input id="file-upload" type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
                   </div>
 
-                  {file && (
-                    <div className="mt-6 space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                      <Label htmlFor="batch-name" className="text-sm font-semibold text-slate-300">Batch Name</Label>
-                      <Input
-                        id="batch-name"
-                        value={batchName}
-                        onChange={(e) => setBatchName(e.target.value)}
-                        placeholder="e.g. Class 10 - 2024"
-                        className="h-11 bg-black/20 border-white/10 text-white focus:ring-primary/50 focus:border-primary/50 placeholder:text-muted-foreground/50 transition-all text-sm"
-                      />
-                      <Button
-                        onClick={handleUpload}
-                        disabled={isUploading || !batchName.trim()}
-                        className="w-full h-11 bg-gradient-to-r from-primary to-violet-600 text-white shadow-lg disabled:opacity-50 hover:shadow-primary/20 transition-all rounded-lg font-medium"
-                      >
-                        {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Start Import"}
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Photo Upload Card */}
-              <Card className="relative overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl hover:shadow-pink-500/20 transition-all duration-300 group">
-                <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                <CardHeader className="relative z-10">
-                  <div className="h-12 w-12 rounded-2xl bg-pink-500/20 border border-pink-500/20 flex items-center justify-center mb-4 shadow-lg shadow-pink-500/10 group-hover:scale-110 transition-transform duration-300">
-                    <Upload className="h-6 w-6 text-pink-400" />
-                  </div>
-                  <CardTitle className="text-xl font-bold text-white">Batch Photos</CardTitle>
-                  <CardDescription className="text-muted-foreground">
-                    Auto-match & upload student photos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 relative z-10">
-                  <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-pink-500/50 hover:bg-pink-500/5 transition-all duration-300 relative group/photo">
+                  {/* Photos Upload Zone */}
+                  <div className="relative border-2 border-dashed border-white/10 rounded-xl p-6 text-center hover:border-pink-500/50 hover:bg-pink-500/5 transition-all duration-300 min-h-[160px] flex flex-col items-center justify-center relative cursor-pointer group/photo">
                     <input
                       type="file"
                       id="bulk-photos"
@@ -688,54 +550,33 @@ export default function UploadData() {
                       className="hidden"
                       onChange={handlePhotoSelect}
                     />
-                    <Label htmlFor="bulk-photos" className="cursor-pointer block w-full h-full">
-                      <div className="flex flex-col items-center gap-3">
-                        {photoFiles.length > 0 ? (
-                          <>
-                            <CheckCircle className="h-10 w-10 text-emerald-400 drop-shadow-md" />
-                            <span className="font-semibold text-emerald-400">{photoFiles.length} Photos Selected</span>
-                          </>
-                        ) : (
-                          <>
-                            <div className="p-3 bg-pink-500/10 rounded-full group-hover/photo:bg-pink-500/20 transition-colors">
-                              <Upload className="h-6 w-6 text-pink-400" />
-                            </div>
-                            <span className="text-sm font-medium text-slate-300">Select Folder</span>
-                          </>
-                        )}
-                      </div>
-                    </Label>
-                  </div>
-
-                  {photoFiles.length > 0 && (
-                    <div className="space-y-4 animate-in slide-in-from-bottom-2">
-                      {photoUploadProgress && (
+                    <Label htmlFor="bulk-photos" className="cursor-pointer block w-full h-full flex flex-col items-center justify-center">
+                      {photoFiles.length > 0 ? (
                         <div className="space-y-2">
-                          <div className="flex justify-between text-xs font-semibold uppercase text-muted-foreground tracking-wider">
-                            <span>Processing</span>
-                            <span>{Math.round((photoUploadProgress.processed / photoUploadProgress.total) * 100)}%</span>
-                          </div>
-                          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-300 ease-out"
-                              style={{ width: `${(photoUploadProgress.processed / photoUploadProgress.total) * 100}%` }}
-                            />
-                          </div>
+                          <CheckCircle className="h-8 w-8 text-emerald-400 mx-auto drop-shadow-md" />
+                          <p className="font-semibold text-emerald-400 text-sm">{photoFiles.length} Photos</p>
+                          <p className="text-xs text-muted-foreground">Ready to match</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload className="h-8 w-8 text-pink-400/50 mx-auto group-hover/photo:text-pink-400 transition-colors" />
+                          <p className="font-medium text-sm text-slate-300">Upload Photos</p>
+                          <p className="text-xs text-muted-foreground">Select folder (Optional)</p>
                         </div>
                       )}
-                      <Button
-                        onClick={handleBulkPhotoUpload}
-                        disabled={!!photoUploadProgress}
-                        className="w-full bg-pink-600 hover:bg-pink-700 text-white shadow-lg disabled:opacity-50"
-                      >
-                        {photoUploadProgress ? <Loader2 className="animate-spin mr-2" /> : "Start Photo Match"}
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    </Label>
+                  </div>
+                </div>
 
-            </div>
+                <Button
+                  onClick={handleUnifiedProcess}
+                  disabled={isUploading || !batchName.trim() || !file}
+                  className="w-full h-12 bg-gradient-to-r from-primary to-violet-600 text-white shadow-lg disabled:opacity-50 hover:shadow-primary/20 text-lg font-medium"
+                >
+                  {isUploading ? <Loader2 className="animate-spin mr-2" /> : "Confirm & Process Batch"}
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* Results Section */}
             {uploadResult && (
@@ -775,95 +616,17 @@ export default function UploadData() {
               </div>
             )}
 
-            {/* Existing Batches List (Enhanced) */}
-            <Card className="border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="text-xl font-bold text-white">Recent Batches</CardTitle>
-                    <CardDescription className="text-muted-foreground">Manage and submit your data batches.</CardDescription>
-                  </div>
-                  <Database className="h-5 w-5 text-muted-foreground" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-xl border border-white/5 overflow-hidden bg-white/[0.02]">
-                  {loadingBatches ? (
-                    <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-primary" /></div>
-                  ) : existingBatches.length > 0 ? (
-                    <Table>
-                      <TableHeader className="bg-white/5">
-                        <TableRow className="border-white/5 hover:bg-transparent">
-                          <TableHead className="font-semibold text-slate-300">Batch Info</TableHead>
-                          <TableHead className="text-right font-semibold text-slate-300">Created</TableHead>
-                          <TableHead className="w-[100px]"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {existingBatches.map((batch) => (
-                          <TableRow key={batch.id} className="hover:bg-white/5 transition-colors border-white/5">
-                            <TableCell>
-                              <div className="font-medium text-white">{batch.batch_name}</div>
-                              <div className="mt-1">
-                                <span className={cn(
-                                  "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                                  batch.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' :
-                                    batch.status === 'submitted' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20' :
-                                      batch.status === 'processing' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' :
-                                        'bg-slate-500/20 text-slate-400 border border-slate-500/20'
-                                )}>
-                                  {batch.status || 'DRAFT'}
-                                </span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right text-xs text-muted-foreground">
-                              {new Date(batch.created_at).toLocaleDateString()}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center justify-end gap-2">
-                                {batch.status === 'draft' && (
-                                  <Button
-                                    size="sm"
-                                    className="h-8 text-xs bg-primary hover:bg-primary/90 text-white border-0"
-                                    onClick={async () => {
-                                      if (confirm("Submit this batch?")) {
-                                        await supabase.from('print_batches' as any).update({ status: 'submitted', submitted_at: new Date() }).eq('id', batch.id);
-                                        toast.success("Batch Submitted!");
-                                        fetchBatches();
-                                      }
-                                    }}
-                                  >
-                                    Submit
-                                  </Button>
-                                )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10"
-                                  onClick={() => deleteBatch(batch.batch_name)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <div className="p-12 text-center">
-                      <p className="text-muted-foreground mb-2">No batches yet</p>
-                      <p className="text-xs text-slate-500">Import a CSV to get started</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
+            {/* Navigation to Drafts Hint */}
+            <div className="text-center p-6 border border-white/5 rounded-xl bg-white/[0.02]">
+              <p className="text-muted-foreground mb-4">Looking for your existing batches?</p>
+              <Button variant="outline" onClick={() => navigate('/drafts')} className="gap-2 border-white/10 hover:bg-white/5">
+                Visit Drafts & History
+              </Button>
+            </div>
           </div>
 
           {/* Right Column: Template Preview */}
-          <div className="lg:col-span-12 xl:col-span-4 space-y-6">
+          < div className="lg:col-span-12 xl:col-span-4 space-y-6" >
             <div className="sticky top-6">
               <Card className="overflow-hidden border-white/10 shadow-2xl bg-black/40 backdrop-blur-xl">
                 <CardHeader className="pb-4">
@@ -918,9 +681,9 @@ export default function UploadData() {
                 </CardContent>
               </Card>
             </div>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
+          </div >
+        </div >
+      </div >
+    </DashboardLayout >
   );
 }

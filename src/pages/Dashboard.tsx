@@ -78,7 +78,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (role === 'school') {
-      navigate('/upload');
+      navigate('/new-batch');
       return;
     }
 
@@ -151,11 +151,11 @@ export default function Dashboard() {
 
   const quickActions = [
     {
-      title: 'Upload Students',
-      description: 'Import student data via CSV',
+      title: 'New Card Batch',
+      description: 'Create new batch & upload data',
       icon: Users,
-      href: '/upload',
-      roles: ['teacher'],
+      href: '/new-batch',
+      roles: ['teacher', 'school'], // Added school
     },
     {
       title: 'Verify Students',

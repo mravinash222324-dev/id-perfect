@@ -10,6 +10,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,18 @@ const navItems: NavItem[] = [
     icon: Printer,
     href: '/print-jobs',
     roles: ['printer', 'admin'],
+  },
+  {
+    title: 'New Card',
+    icon: CreditCard,
+    href: '/new-batch',
+    roles: ['school', 'teacher'],
+  },
+  {
+    title: 'Drafts',
+    icon: Database,
+    href: '/drafts',
+    roles: ['school', 'teacher'],
   },
   {
     title: 'Settings',

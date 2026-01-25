@@ -12,6 +12,7 @@ import Verification from "./pages/Verification";
 import DesignStudio from "./pages/DesignStudio";
 import IDCards from "./pages/IDCards";
 import PrintJobs from "./pages/PrintJobs";
+import SchoolDrafts from "./pages/SchoolDrafts";
 import Settings from "./pages/Settings";
 import AdminSchools from "./pages/AdminSchools";
 import MagicLogin from "./pages/MagicLogin";
@@ -32,11 +33,12 @@ const App = () => (
             <Route path="/magic-login" element={<MagicLogin />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/students" element={<Students />} />
-            <Route path="/upload" element={<UploadData />} />
+            <Route path="/new-batch" element={<UploadData />} />
             <Route path="/verification" element={<Verification />} />
             <Route path="/design-studio" element={<DesignStudio />} />
             <Route path="/id-cards" element={<IDCards />} />
             <Route path="/print-jobs" element={<PrintJobs />} />
+            <Route path="/drafts" element={<SchoolDrafts />} />
             <Route path="/admin/schools" element={<AdminSchools />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />

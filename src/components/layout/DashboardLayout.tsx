@@ -28,9 +28,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return <Navigate to="/auth" replace />;
   }
 
-  // Hide sidebar for school users as they have a single-page interface
-  const showSidebar = role !== 'school';
-
   return (
     <div className="flex min-h-screen w-full relative overflow-hidden bg-background">
       {/* Dynamic Background Elements */}
@@ -40,7 +37,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <div className="absolute top-[40%] left-[60%] w-[20%] h-[20%] rounded-full bg-accent/5 blur-[100px] animate-float" />
       </div>
 
-      {showSidebar && <AppSidebar />}
+      <AppSidebar />
 
       <main className="flex-1 overflow-auto z-10 relative">
         <AnimatePresence mode="wait">
