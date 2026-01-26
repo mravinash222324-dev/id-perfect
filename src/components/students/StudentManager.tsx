@@ -34,7 +34,8 @@ import {
     CheckCircle2,
     XCircle,
     FileDown,
-    Loader2
+    Loader2,
+    ListFilter
 } from 'lucide-react';
 import { StudentEditDialog } from '@/components/students/StudentEditDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -69,6 +70,12 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('all');
     const [requiredFields, setRequiredFields] = useState<string[]>([]);
+    const [selectedClass, setSelectedClass] = useState<string>('all');
+
+    const uniqueClasses = useMemo(() => {
+        const classes = new Set(students.map(s => s.class).filter(Boolean));
+        return Array.from(classes).sort();
+    }, [students]);
 
     useEffect(() => {
         if (batchId) {
@@ -169,8 +176,12 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
         if (!matchesSearch) return false;
 
         // 2. Tab Filter
-        if (activeTab === 'verified') return student.isValid;
-        if (activeTab === 'unverified') return !student.isValid;
+        if (activeTab === 'verified' && !student.isValid) return false;
+        if (activeTab === 'unverified' && student.isValid) return false;
+
+        // 3. Class Filter
+        if (selectedClass !== 'all' && student.class !== selectedClass) return false;
+
         return true;
     });
 
@@ -306,6 +317,30 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
                         Proof PDF
                     </Button>
 
+
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant={selectedClass !== 'all' ? "secondary" : "outline"}
+                                className="gap-2"
+                            >
+                                <ListFilter className="h-4 w-4" />
+                                {selectedClass !== 'all' ? `Class: ${selectedClass}` : "Filter Class"}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48 max-h-[300px] overflow-y-auto">
+                            <DropdownMenuItem onClick={() => setSelectedClass('all')}>
+                                All Classes
+                            </DropdownMenuItem>
+                            {uniqueClasses.map((cls) => (
+                                <DropdownMenuItem key={cls} onClick={() => setSelectedClass(cls as string)}>
+                                    {cls}
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
                     {/* Tabs for Filtering */}
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full md:w-auto">
                         <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
@@ -323,140 +358,144 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
                 </div>
             </div>
 
-            {loading ? (
-                <div className="flex items-center justify-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-                </div>
-            ) : filteredStudents.length > 0 ? (
-                <div className="rounded-lg border border-border overflow-hidden max-h-[60vh] overflow-y-auto">
-                    <Table>
-                        <TableHeader className="sticky top-0 bg-background z-10">
-                            <TableRow className="bg-muted/50">
-                                <TableHead className="w-[300px]">Student Details</TableHead>
-                                <TableHead className="w-[100px]">Photo</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Class/Dept</TableHead>
-                                {!readOnly && <TableHead className="w-[50px]"></TableHead>}
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredStudents.map((student) => (
-                                <TableRow key={student.id} className="hover:bg-muted/30">
-                                    <TableCell>
-                                        <div className="flex items-center gap-3">
-                                            <div className={`h-10 w-10 rounded-full flex items-center justify-center overflow-hidden border ${student.isValid ? 'border-border' : 'border-rose-500/50 bg-rose-500/10'}`}>
-                                                {student.photo_url ? (
-                                                    <img
-                                                        src={student.photo_url}
-                                                        alt={student.name}
-                                                        className="h-full w-full object-cover"
-                                                    />
-                                                ) : (
-                                                    <Users className={`h-5 w-5 ${student.isValid ? 'text-primary' : 'text-rose-500'}`} />
-                                                )}
-                                            </div>
-                                            <div>
-                                                <p className="font-medium text-sm">{student.name || <span className="text-rose-500 italic">No Name</span>}</p>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-mono text-xs text-muted-foreground">{student.roll_number || 'No ID'}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex items-center gap-2">
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Label htmlFor={`photo-${student.id}`} className={`cursor-pointer p-2 rounded-md hover:bg-muted transition-colors ${!student.photo_url ? 'animate-pulse bg-rose-500/10 text-rose-500' : ''}`}>
-                                                        <Upload className="h-4 w-4" />
-                                                    </Label>
-                                                </TooltipTrigger>
-                                                <TooltipContent>Upload Photo</TooltipContent>
-                                            </Tooltip>
-                                            <Input
-                                                id={`photo-${student.id}`}
-                                                type="file"
-                                                accept="image/*"
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                    if (e.target.files?.[0]) {
-                                                        handlePhotoUpload(e.target.files[0], student.id);
-                                                    }
-                                                }}
-                                            />
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        {student.isValid ? (
-                                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 gap-1 pl-1">
-                                                <CheckCircle2 className="h-3 w-3" /> Verified
-                                            </Badge>
-                                        ) : (
-                                            <div className="flex flex-col gap-1 items-start">
-                                                <Badge variant="outline" className="bg-rose-500/10 text-rose-500 border-rose-500/20 gap-1 pl-1 mb-1">
-                                                    <XCircle className="h-3 w-3" /> Incomplete
-                                                </Badge>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {student.errors.map(err => (
-                                                        <span key={err} className="text-[10px] font-bold text-rose-400 bg-rose-500/5 px-1 rounded">{err}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </TableCell>
-                                    <TableCell className="text-sm">
-                                        <div className="flex flex-col">
-                                            <span>{student.class || '-'}</span>
-                                            <span className="text-xs text-muted-foreground">{student.department}</span>
-                                        </div>
-                                    </TableCell>
-                                    {!readOnly && (
-                                        <TableCell>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
-                                                        <Edit className="h-4 w-4" />
-                                                        Edit / Fix
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="gap-2 text-destructive focus:text-destructive"
-                                                        onClick={() => handleDelete(student.id)}
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                        Delete
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </TableCell>
-                                    )}
+            {
+                loading ? (
+                    <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                    </div>
+                ) : filteredStudents.length > 0 ? (
+                    <div className="rounded-lg border border-border overflow-hidden max-h-[60vh] overflow-y-auto">
+                        <Table>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow className="bg-muted/50">
+                                    <TableHead className="w-[300px]">Student Details</TableHead>
+                                    <TableHead className="w-[100px]">Photo</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Class/Dept</TableHead>
+                                    {!readOnly && <TableHead className="w-[50px]"></TableHead>}
                                 </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            ) : (
-                <div className="text-center py-16 border rounded-lg border-dashed">
-                    <p className="text-muted-foreground">No students found in this category.</p>
-                    {searchQuery && <Button variant="link" onClick={() => setSearchQuery('')}>Clear Search</Button>}
-                </div>
-            )}
+                            </TableHeader>
+                            <TableBody>
+                                {filteredStudents.map((student) => (
+                                    <TableRow key={student.id} className="hover:bg-muted/30">
+                                        <TableCell>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`h-10 w-10 rounded-full flex items-center justify-center overflow-hidden border ${student.isValid ? 'border-border' : 'border-rose-500/50 bg-rose-500/10'}`}>
+                                                    {student.photo_url ? (
+                                                        <img
+                                                            src={student.photo_url}
+                                                            alt={student.name}
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    ) : (
+                                                        <Users className={`h-5 w-5 ${student.isValid ? 'text-primary' : 'text-rose-500'}`} />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-sm">{student.name || <span className="text-rose-500 italic">No Name</span>}</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-mono text-xs text-muted-foreground">{student.roll_number || 'No ID'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2">
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Label htmlFor={`photo-${student.id}`} className={`cursor-pointer p-2 rounded-md hover:bg-muted transition-colors ${!student.photo_url ? 'animate-pulse bg-rose-500/10 text-rose-500' : ''}`}>
+                                                            <Upload className="h-4 w-4" />
+                                                        </Label>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Upload Photo</TooltipContent>
+                                                </Tooltip>
+                                                <Input
+                                                    id={`photo-${student.id}`}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    className="hidden"
+                                                    onChange={(e) => {
+                                                        if (e.target.files?.[0]) {
+                                                            handlePhotoUpload(e.target.files[0], student.id);
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            {student.isValid ? (
+                                                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 gap-1 pl-1">
+                                                    <CheckCircle2 className="h-3 w-3" /> Verified
+                                                </Badge>
+                                            ) : (
+                                                <div className="flex flex-col gap-1 items-start">
+                                                    <Badge variant="outline" className="bg-rose-500/10 text-rose-500 border-rose-500/20 gap-1 pl-1 mb-1">
+                                                        <XCircle className="h-3 w-3" /> Incomplete
+                                                    </Badge>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {student.errors.map(err => (
+                                                            <span key={err} className="text-[10px] font-bold text-rose-400 bg-rose-500/5 px-1 rounded">{err}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            <div className="flex flex-col">
+                                                <span>{student.class || '-'}</span>
+                                                <span className="text-xs text-muted-foreground">{student.department}</span>
+                                            </div>
+                                        </TableCell>
+                                        {!readOnly && (
+                                            <TableCell>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem className="gap-2" onClick={() => handleEditClick(student)}>
+                                                            <Edit className="h-4 w-4" />
+                                                            Edit / Fix
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="gap-2 text-destructive focus:text-destructive"
+                                                            onClick={() => handleDelete(student.id)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                            Delete
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </TableCell>
+                                        )}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                ) : (
+                    <div className="text-center py-16 border rounded-lg border-dashed">
+                        <p className="text-muted-foreground">No students found in this category.</p>
+                        {searchQuery && <Button variant="link" onClick={() => setSearchQuery('')}>Clear Search</Button>}
+                    </div>
+                )
+            }
 
-            {editingStudent && (
-                <StudentEditDialog
-                    student={editingStudent}
-                    open={isEditOpen}
-                    onOpenChange={setIsEditOpen}
-                    requiredFields={requiredFields}
-                    onSave={() => {
-                        fetchData();
-                    }}
-                />
-            )}
-        </div>
+            {
+                editingStudent && (
+                    <StudentEditDialog
+                        student={editingStudent}
+                        open={isEditOpen}
+                        onOpenChange={setIsEditOpen}
+                        requiredFields={requiredFields}
+                        onSave={() => {
+                            fetchData();
+                        }}
+                    />
+                )
+            }
+        </div >
     );
 }
