@@ -27,10 +27,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 import { CreditCard as CardIcon } from 'lucide-react'; // Rename to avoid conflict if Card is imported for UI
 import { extractTemplateFields } from '@/utils/templateHelper';
+import { getRequiredFields, validateStudent } from '@/utils/studentValidation';
 
 interface UploadResult {
   success: number;
   failed: number;
+  verified: number;
+  unverified: number;
   errors: string[];
 }
 
@@ -320,7 +323,52 @@ export default function UploadData() {
         }
       }
 
-      setUploadResult({ success, failed, errors });
+      // 4. Calculate Verified Status accurately using Shared Validation Logic
+      // Fetch all students for this batch to validate them fully
+      const { data: batchStudents } = await supabase
+        .from('students')
+        .select('*')
+        .eq('print_batch_id', batchId);
+
+      let verifiedCount = 0;
+      let unverifiedCount = 0;
+
+      if (batchStudents) {
+        // Get Template for validation rules
+        let reqFields: string[] = ['name', 'roll_number', 'photo_url'];
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: tmpls } = await supabase
+            .from('id_templates')
+            .select('*')
+            .contains('assigned_schools', [user.id])
+            .limit(1);
+          if (tmpls && tmpls.length > 0) {
+            reqFields = getRequiredFields(tmpls[0]);
+          }
+        }
+
+        batchStudents.forEach(s => {
+          const errors = validateStudent(s, reqFields);
+          if (errors.length === 0) {
+            verifiedCount++;
+          } else {
+            unverifiedCount++;
+          }
+        });
+      } else {
+        // Fallback if fetch fails
+        verifiedCount = photosMatched;
+        unverifiedCount = success - photosMatched;
+      }
+
+      setUploadResult({
+        success,
+        failed,
+        verified: verifiedCount,
+        unverified: unverifiedCount,
+        errors
+      });
       toast.success(`Batch Created! Imported ${success} students, Matched ${photosMatched} photos.`);
 
       // Clear Form
@@ -589,14 +637,30 @@ export default function UploadData() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                        <div className="text-2xl font-bold text-emerald-400">{uploadResult.success}</div>
-                        <div className="text-xs font-medium text-emerald-500/70 uppercase tracking-wide">Success</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+
+                      {/* Total Uploaded */}
+                      <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                        <div className="text-2xl font-bold text-blue-400">{uploadResult.success}</div>
+                        <div className="text-xs font-medium text-blue-500/70 uppercase tracking-wide">Total Students</div>
                       </div>
+
+                      {/* Verified (Complete) */}
+                      <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                        <div className="text-2xl font-bold text-emerald-400">{uploadResult.verified}</div>
+                        <div className="text-xs font-medium text-emerald-500/70 uppercase tracking-wide">Verified (Complete)</div>
+                      </div>
+
+                      {/* Unverified (Incomplete) */}
+                      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                        <div className="text-2xl font-bold text-amber-400">{uploadResult.unverified}</div>
+                        <div className="text-xs font-medium text-amber-500/70 uppercase tracking-wide">Unverified (No Photo)</div>
+                      </div>
+
+                      {/* Failed (Errors) */}
                       <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
                         <div className="text-2xl font-bold text-rose-400">{uploadResult.failed}</div>
-                        <div className="text-xs font-medium text-rose-500/70 uppercase tracking-wide">Failed</div>
+                        <div className="text-xs font-medium text-rose-500/70 uppercase tracking-wide">Failed Rows</div>
                       </div>
                     </div>
                     {uploadResult.errors.length > 0 && (

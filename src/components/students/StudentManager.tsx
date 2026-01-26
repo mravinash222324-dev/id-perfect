@@ -41,6 +41,7 @@ import { StudentEditDialog } from '@/components/students/StudentEditDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { extractTemplateVars } from '@/utils/cardRenderer';
 import { generateBatchProofPDF } from '@/utils/pdfGenerator';
+import { getRequiredFields, validateStudent as validateStudentHelper } from '@/utils/studentValidation';
 
 interface Student {
     id: string;
@@ -108,12 +109,8 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
                     .limit(1);
 
                 if (tmpls && tmpls.length > 0) {
-                    const template = tmpls[0];
-
-                    const frontVars = extractTemplateVars((template as any).front_design);
-                    const backVars = extractTemplateVars((template as any).back_design);
-                    const allVars = new Set([...frontVars, ...backVars, 'name', 'roll_number', 'photo_url']); // Mandatory
-                    setRequiredFields(Array.from(allVars));
+                    const fields = getRequiredFields(tmpls[0]);
+                    setRequiredFields(fields);
                 } else {
                     // Fallback defaults if no template
                     setRequiredFields(['name', 'roll_number', 'class', 'photo_url']);
@@ -130,29 +127,7 @@ export function StudentManager({ batchId, readOnly = false }: StudentManagerProp
     };
 
     const validateStudent = (student: Student) => {
-        const errors: string[] = [];
-
-        // Always Required
-        if (!student.name || student.name.trim() === '') errors.push('Name');
-        if (!student.roll_number || student.roll_number.trim() === '') errors.push('Roll Number');
-        if (!student.photo_url) errors.push('Photo');
-
-        // Dynamic Validation based on Template
-        // We skip name/roll/photo as they are handled above
-        requiredFields.forEach(field => {
-            if (['name', 'roll_number', 'photo_url', 'id', 'created_at'].includes(field)) return;
-
-            // For other fields like class, department, blood_group, phone etc.
-            // Check if they are empty
-            const val = (student as any)[field];
-            if (!val || String(val).trim() === '') {
-                // Format field name for UI
-                const label = field.charAt(0).toUpperCase() + field.slice(1).replace('_', ' ');
-                errors.push(label);
-            }
-        });
-
-        return errors;
+        return validateStudentHelper(student, requiredFields);
     };
 
     const processedStudents = useMemo(() => {
